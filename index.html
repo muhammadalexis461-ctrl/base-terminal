@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Base Arbi-Bot | Desktop Terminal</title>
+    <style>
+        body { background: #0d0d0d; color: #f0f0f0; font-family: 'Segoe UI', Roboto, sans-serif; text-align: center; padding-top: 50px; }
+        .card { border: 1px solid #222; background: #151515; padding: 40px; margin: 20px auto; width: 400px; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+        h1 { color: #0084ff; letter-spacing: 3px; font-weight: 300; margin-bottom: 30px; }
+        .price-box { font-size: 1.1rem; margin: 15px 0; display: flex; justify-content: space-between; border-bottom: 1px solid #222; padding-bottom: 10px; }
+        .profit-text { color: #2ecc71; font-weight: bold; font-size: 2rem; margin: 20px 0; }
+        #strike-btn { background: #1e1e1e; color: #555; padding: 20px; font-size: 1.1rem; font-weight: bold; border: 1px solid #333; border-radius: 6px; cursor: pointer; transition: 0.4s; width: 100%; text-transform: uppercase; }
+        #strike-btn.active { background: #0084ff; color: white; border: none; box-shadow: 0 0 15px rgba(0, 132, 255, 0.5); cursor: pointer; }
+        #status { margin-top: 25px; font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+        .value { font-family: 'Courier New', monospace; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <h1>BASE TERMINAL</h1>
+    
+    <div class="card">
+        <div class="price-box"><span>UNISWAP V3:</span> <span id="uni-price" class="value">SYNCING...</span></div>
+        <div class="price-box"><span>AERODROME:</span> <span id="aero-price" class="value">SYNCING...</span></div>
+        <p style="font-size: 0.8rem; color: #444; margin-top: 20px;">ESTIMATED SPREAD</p>
+        <div id="profit-margin" class="profit-text">$0.00</div>
+        <button id="strike-btn">INITIALIZING...</button>
+    </div>
+    
+    <p id="status">CONNECTING TO SECURE INFURA NODE...</p>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+
+    <script>
+        // --- DATA HUB ---
+        const CONTRACT_ADDR = "0xa94f006639da96911B042ef9461F08Bae58e9bA4"; 
+        const INFURA_KEY = "3d49ad2c13ce4fd4bf1e847aa7302ffb";
+        const RPC_URL = `https://base-mainnet.infura.io/v3/${INFURA_KEY}`;
+        
+        const WETH = "0x4200000000000000000000000000000000000006";
+        const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+        
+        // ABIs
+        const uniPoolABI = ["function slot0() external view returns (uint160 sqrtPriceX96, int24, uint16, uint16, uint16, uint8, bool)"];
+        const aeroRouterABI = ["function getAmountsOut(uint amountIn, tuple(address from, address to, bool stable, address factory)[] routes) external view returns (uint[] memory amounts)"];
+        
+        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+
+        async function updateDashboard() {
+            try {
+                // 1. Get Uniswap Price
+                const uniPool = new ethers.Contract("0xd0b53D9277642d2a2b174886eba035501dc1D19e", uniPoolABI, provider);
+                const { sqrtPriceX96 } = await uniPool.slot0();
+                const uniPrice = (Math.pow(sqrtPriceX96 / Math.pow(2, 96), 2) * 1e12).toFixed(2);
+                document.getElementById("uni-price").innerText = `$${uniPrice}`;
+
+                // 2. Get Aerodrome Price
+                const aeroRouter = new ethers.Contract("0xcF77A3BA9a5ca399AF7367531ED00Ba853860D98", aeroRouterABI, provider);
+                const amountInUSDC = ethers.utils.parseUnits("1000", 6);
+                const routes = [{ from: USDC, to: WETH, stable: false, factory: "0x420dD3807e0E14821062251762Daee8440596611" }];
+                
+                const amounts = await aeroRouter.getAmountsOut(amountInUSDC, routes);
+                const wethOut = ethers.utils.formatEther(amounts[1]);
+                const aeroPrice = (1000 / wethOut).toFixed(2); 
+                document.getElementById("aero-price").innerText = `$${aeroPrice}`;
+
+                // 3. Logic & Profit
+                const spread = (aeroPrice - uniPrice).toFixed(2);
+                const btn = document.getElementById("strike-btn");
+                const margin = document.getElementById("profit-margin");
+                
+                margin.innerText = (spread > 0 ? "+" : "") + "$" + spread;
+                
+                if (spread > 1.0) {
+                    btn.innerText = "EXECUTE STRIKE";
+                    btn.classList.add("active");
+                    document.getElementById("status").innerText = "SIGNAL DETECTED: PROFITABLE";
+                } else {
+                    btn.innerText = "WAITING FOR ALPHA...";
+                    btn.classList.remove("active");
+                    document.getElementById("status").innerText = "SCANNING BASE MAINNET POOLS...";
+                }
+            } catch (e) {
+                console.log(e);
+                document.getElementById("status").innerText = "RPC AUTH ERROR: CHECK INFURA BASE SETTINGS";
+            }
+        }
+
+        async function triggerStrike() {
+            if (!window.ethereum) return alert("MetaMask not found. Please install the extension!");
+            
+            const pcProvider = new ethers.providers.Web3Provider(window.ethereum);
+            await pcProvider.send("eth_requestAccounts", []);
+            const signer = pcProvider.getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDR, ["function strike(uint256 _amount) external"], signer);
+
+            try {
+                document.getElementById("status").innerText = "AWAITING METAMASK APPROVAL...";
+                const tx = await contract.strike(ethers.utils.parseEther("0.001")); 
+                document.getElementById("status").innerText = "TRANSACTION PENDING...";
+                await tx.wait();
+                document.getElementById("status").innerText = "STRIKE SUCCESSFUL!";
+                alert("Execution Complete!");
+            } catch (err) {
+                document.getElementById("status").innerText = "TRANSACTION REJECTED";
+            }
+        }
+
+        document.getElementById("strike-btn").addEventListener("click", triggerStrike);
+        setInterval(updateDashboard, 5000); 
+        updateDashboard();
+    </script>
+</body>
+</html>
