@@ -51,7 +51,7 @@
                 const c = new ethers.Contract(CONFIG.BOT, ["function strike(uint256) external"], s);
                 
                 log(`STRIKING SPREAD: +$${diff.toFixed(2)}`);
-                const tx = await c.strike(ethers.parseEther("1.0"), { gasLimit: 1000000 });
+                const tx = await c.strike(ethers.parseEther("0.1"), { gasLimit: 1000000 });
                 log("TX_SENT: " + tx.hash.slice(0,10));
                 await tx.wait();
                 log("SUCCESS: PROFIT_SECURED");
