@@ -88,7 +88,6 @@
                 const p = new ethers.BrowserProvider(window.ethereum);
                 const s = await p.getSigner();
                 const c = new ethers.Contract(CONFIG.BOT, ["function strike(uint256) external"], s);
-                // Updated to 1.0 WETH to match your new contract's $3000 capacity
                 const tx = await c.strike(ethers.parseEther("1.0"), { gasLimit: 1000000 });
                 log("STRIKE_SENT: " + tx.hash.slice(0, 10) + " diff=$" + diff.toFixed(2));
                 await tx.wait();
@@ -125,8 +124,8 @@
                         (diff >= 0 ? "+" : "-") + "$" + Math.abs(diff).toFixed(2);
                     document.getElementById("status").innerText = "ELB_SCANNER_LIVE";
 
-                    // PROFIT THRESHOLD UPDATED: Changed from 0.50 to 4.00
-                    if (Math.abs(diff) > 4.00) await strike(diff);
+                    // LOGIC UPDATED: Removed Math.abs(). Now ONLY triggers if diff is POSITIVE and > 4.00
+                    if (diff > 4.00) await strike(diff);
 
                 } catch (e) {
                     currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
