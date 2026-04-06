@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Base Terminal | ELB 461 SECURE</title>
+    <title>Base Terminal | ELB 461 HARDENED</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff0033; }
@@ -32,55 +32,57 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
+        // 1. HARDENED INFRASTRUCTURE
         const RPC = "https://mainnet.base.org";
         const provider = new ethers.providers.JsonRpcProvider(RPC);
 
-        // ELB 461 Asset Map
         const WETH = "0x4200000000000000000000000000000000000006".toLowerCase();
         const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".toLowerCase();
         const UNI_POOL = "0xd0b53D9277642d2a2b174886eba035501dc1D19e".toLowerCase(); 
         const AERO_ROUTER = "0xcF77a3Ba9A5ca399AF7367531ED00Ba853860D98".toLowerCase();
-        const AERO_FACTORY = "0x420DD3807E0e10597d288A479AD529dcEEFE731B".toLowerCase(); // Necessary for Aerodrome price check
+        const AERO_FACTORY = "0x420DD3807E0e10597d288A479AD529dcEEFE731B".toLowerCase();
         const CONTRACT_ADDR = "0xa94f006639da96911B042ef9461F08Bae58e9bA4".toLowerCase();
 
-        async function update() {
-            try {
-                document.getElementById("status").innerText = "CORE_SYNC_ACTIVE...";
-                
-                // 1. Uniswap V3 Price Check
-                const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
-                const poolData = await pool.slot0();
-                
-                // Math fix for square root price to USD
-                const sqrtPriceX96 = BigInt(poolData[0]);
-                const uPrice = (Number((sqrtPriceX96 * sqrtPriceX96 * BigInt(1e12)) / (BigInt(2)**BigInt(192))) / 1e6).toFixed(2);
-                document.getElementById("uni-val").innerText = "$" + uPrice;
+        // 2. CSP-PROOF DELAY (Uses Promises instead of setTimeout callback)
+        const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-                // 2. Aerodrome Price Check (Requires Factory address for pool lookup)
-                const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint amountIn, address tokenIn, address tokenOut, address factory) view returns (uint amount, bool stable)"], provider);
-                const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC, AERO_FACTORY);
-                const aPrice = (Number(aeroData.amount) / 1e6).toFixed(2);
-                document.getElementById("aero-val").innerText = "$" + aPrice;
+        // 3. CONTINUOUS ASYNC LOOP (Solves SES unpermitted intrinsic issue)
+        async function startTerminal() {
+            while (true) {
+                try {
+                    document.getElementById("status").innerText = "CORE_SYNC_ACTIVE...";
+                    
+                    const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
+                    const poolData = await pool.slot0();
+                    
+                    const sqrtPriceX96 = BigInt(poolData[0]);
+                    const uPrice = (Number((sqrtPriceX96 * sqrtPriceX96 * BigInt(1e12)) / (BigInt(2)**BigInt(192))) / 1e6).toFixed(2);
+                    document.getElementById("uni-val").innerText = "$" + uPrice;
 
-                // 3. UI Spread Calculation
-                const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
-                const spreadEl = document.getElementById("spread");
-                spreadEl.innerText = (diff > 0 ? "+" : "") + "$" + diff;
-                spreadEl.style.color = diff > 0 ? "#00ff00" : "#ff3333";
+                    const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint amountIn, address tokenIn, address tokenOut, address factory) view returns (uint amount, bool stable)"], provider);
+                    const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC, AERO_FACTORY);
+                    const aPrice = (Number(aeroData.amount) / 1e6).toFixed(2);
+                    document.getElementById("aero-val").innerText = "$" + aPrice;
+
+                    const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
+                    const spreadEl = document.getElementById("spread");
+                    spreadEl.innerText = (diff > 0 ? "+" : "") + "$" + diff;
+                    spreadEl.style.color = diff > 0 ? "#00ff00" : "#ff3333";
+                    
+                    const btn = document.getElementById("strike-btn");
+                    btn.innerText = "WAITING_FOR_SIGNAL";
+                    btn.disabled = false;
+                    btn.classList.add("active");
+                    document.getElementById("status").innerText = "STATUS_SECURE_ONLINE";
+
+                } catch (err) {
+                    console.error("ELB_SYNC_ERROR:", err);
+                    document.getElementById("status").innerText = "RPC_RETRY_SECURE...";
+                }
                 
-                const btn = document.getElementById("strike-btn");
-                btn.innerText = "WAITING_FOR_SIGNAL";
-                btn.disabled = false;
-                btn.classList.add("active");
-                document.getElementById("status").innerText = "STATUS_SECURE_ONLINE";
-
-            } catch (err) {
-                console.error("ELB_SYNC_ERROR:", err);
-                document.getElementById("status").innerText = "RPC_RETRY_SECURE...";
+                // Wait 10 seconds before next iteration
+                await delay(10000);
             }
-            
-            // CSP-Compliant timer (no string evaluation)
-            setTimeout(update, 10000);
         }
 
         async function strike() {
@@ -91,4 +93,18 @@
             const bot = new ethers.Contract(CONTRACT_ADDR, ["function strike(uint256) external"], signer);
             
             try {
-                const tx = await bot.strike(ethers.utils.parse
+                const tx = await bot.strike(ethers.utils.parseEther("0.01"), { gasLimit: 500000 });
+                document.getElementById("status").innerText = "TX_PENDING...";
+                await tx.wait();
+                document.getElementById("status").innerText = "STRIKE_SUCCESS";
+            } catch (e) { document.getElementById("status").innerText = "TX_REJECTED"; }
+        }
+
+        document.getElementById("sync-btn").addEventListener("click", () => location.reload()); // Cleanest reset for SES
+        document.getElementById("strike-btn").addEventListener("click", strike);
+        
+        // Final Execution (Start the infinite loop)
+        startTerminal();
+    </script>
+</body>
+</html>
