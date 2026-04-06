@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Base Terminal | v1.7 PRO</title>
+    <title>Base Terminal | v1.8 PRO</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff0033; }
         .data-line { display: flex; justify-content: space-between; margin: 15px 0; border-bottom: 1px solid #004400; padding-bottom: 5px; }
         .profit { font-size: 2.5rem; margin: 20px 0; color: #fff; text-shadow: 0 0 10px #00ff00; }
-        button { width: 100%; padding: 15px; margin: 5px 0; font-weight: bold; cursor: pointer; font-family: 'Courier New'; }
-        #strike-btn { background: #111; color: #333; border: 1px solid #333; transition: 0.3s; }
+        button { width: 100%; padding: 15px; margin: 5px 0; font-weight: bold; cursor: pointer; font-family: 'Courier New'; transition: 0.3s; }
+        #strike-btn { background: #111; color: #333; border: 1px solid #333; }
         #strike-btn.active { background: #00ff00; color: #000; border: none; cursor: pointer; box-shadow: 0 0 15px #00ff00; }
         #sync-btn { background: #004400; color: #00ff00; border: 1px solid #00ff00; font-size: 0.7rem; }
         #status { font-size: 0.7rem; color: #888; margin-top: 20px; text-transform: uppercase; }
@@ -18,12 +18,12 @@
 <body>
 
     <div class="terminal">
-        <h2 style="margin-top:0;">BASE_CORE_OS v1.7</h2>
+        <h2 style="margin-top:0;">BASE_CORE_OS v1.8</h2>
         <div class="data-line"><span>UNI_V3_ETH/USDC:</span> <span id="uni-val">OFFLINE</span></div>
         <div class="data-line"><span>AERO_ETH/USDC:</span> <span id="aero-val">OFFLINE</span></div>
         <div id="spread" class="profit">$0.00</div>
         
-        <button id="strike-btn" disabled>SCANNING_MARKET...</button>
+        <button id="strike-btn" disabled>INITIALIZING...</button>
         <button id="sync-btn">MANUAL_FORCE_SYNC</button>
         
         <p id="status">CONNECTING_TO_BASE_MAINNET...</p>
@@ -32,11 +32,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
-        // 1. STABLE INFRASTRUCTURE (Using Public Base Node)
+        // 1. GLOBAL SETTINGS
         const RPC = "https://mainnet.base.org";
         const provider = new ethers.providers.StaticJsonRpcProvider(RPC);
 
-        // 2. VERIFIED CHECKSUM ADDRESSES (FIXED v1.7)
+        // 2. VERIFIED CHECKSUM ADDRESSES (Fixed for Ethers.js 5.7)
         const WETH = "0x4200000000000000000000000000000000000006";
         const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
         const UNI_POOL = "0xd0b53D9277642d2a2b174886eba035501dc1D19e"; 
@@ -47,21 +47,19 @@
             try {
                 document.getElementById("status").innerText = "FETCHING_DATA...";
                 
-                // Uniswap Price Extraction
+                // Uniswap Price Fetching
                 const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
                 const poolData = await pool.slot0();
-                const sqrtPrice = poolData[0];
-                const uPrice = (Math.pow(sqrtPrice / Math.pow(2, 96), 2) * 1e12).toFixed(2);
+                const uPrice = (Math.pow(poolData[0] / Math.pow(2, 96), 2) * 1e12).toFixed(2);
                 document.getElementById("uni-val").innerText = `$${uPrice}`;
 
-                // Aerodrome Price Extraction
+                // Aerodrome Price Fetching
                 const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address) view returns (uint, bool)"], provider);
-                const amountIn = ethers.utils.parseEther("1");
-                const aeroData = await router.getAmountOut(amountIn, WETH, USDC);
+                const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC);
                 const aPrice = ethers.utils.formatUnits(aeroData[0], 6);
                 document.getElementById("aero-val").innerText = `$${parseFloat(aPrice).toFixed(2)}`;
 
-                // Arithmetic & UI Logic
+                // Update UI Logic
                 const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
                 document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
                 
@@ -72,34 +70,34 @@
                 document.getElementById("status").innerText = "STATUS_ONLINE";
 
             } catch (err) {
-                console.error("Critical Sync Error:", err);
-                document.getElementById("status").innerText = "RPC_ERROR: CHECKING CONNECTION...";
+                console.error("Sync Error:", err);
+                document.getElementById("status").innerText = "RPC_LAG: RETRYING...";
             }
         }
 
         async function strike() {
-            if (!window.ethereum) return alert("MetaMask Extension required!");
-            const walletProvider = new ethers.providers.Web3Provider(window.ethereum);
-            await walletProvider.send("eth_requestAccounts", []);
-            const signer = walletProvider.getSigner();
+            if (!window.ethereum) return alert("MetaMask Missing!");
+            const pcProvider = new ethers.providers.Web3Provider(window.ethereum);
+            await pcProvider.send("eth_requestAccounts", []);
+            const signer = pcProvider.getSigner();
             const bot = new ethers.Contract(CONTRACT, ["function strike(uint256) external"], signer);
+            
             try {
-                document.getElementById("status").innerText = "AWAITING_CONFIRMATION...";
+                document.getElementById("status").innerText = "CHECKING_GAS...";
                 const tx = await bot.strike(ethers.utils.parseEther("0.001"), { gasLimit: 500000 });
-                document.getElementById("status").innerText = "STRIKE_BROADCASTED";
+                document.getElementById("status").innerText = "TX_PENDING...";
                 await tx.wait();
                 document.getElementById("status").innerText = "SUCCESSFUL_STRIKE";
             } catch (e) { 
-                document.getElementById("status").innerText = "TX_REJECTED"; 
+                document.getElementById("status").innerText = "TX_FAILED"; 
             }
         }
 
         document.getElementById("sync-btn").addEventListener("click", update);
         document.getElementById("strike-btn").addEventListener("click", strike);
         
-        // Initial run and cycle
         update();
-        setInterval(update, 10000); 
+        setInterval(update, 12000); 
     </script>
 </body>
 </html>
