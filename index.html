@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ELB 461 | AUTO-STRIKE v3.1</title>
+    <title>ELB 461 | PRO AUTO-STRIKE</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 480px; box-shadow: 0 0 20px #00ff00; }
@@ -27,10 +27,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
-        // 1. ELB 461 CORE CONFIGURATION
-        const RPC_URL = "https://1rpc.io/base"; // Faster, more stable than mainnet.base.org
-        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
-        
+        // 1. FAILOVER RPC LIST (Prevents 429 Errors)
+        const RPC_LIST = [
+            "https://1rpc.io/base",
+            "https://base.meowrpc.com",
+            "https://mainnet.base.org"
+        ];
+        let currentRpcIndex = 0;
+
         const PROFIT_THRESHOLD = 0.50; 
         const LOAN_AMOUNT = ethers.utils.parseEther("0.01"); 
 
@@ -43,85 +47,69 @@
 
         function addLog(msg) {
             const box = document.getElementById("logs");
-            const time = new Date().toLocaleTimeString();
-            box.innerHTML += `<div>[${time}] > ${msg}</div>`;
+            box.innerHTML += `<div>[${new Date().toLocaleTimeString()}] > ${msg}</div>`;
             box.scrollTop = box.scrollHeight;
         }
 
-        // 2. THE STRIKE LOGIC
         async function executeStrike(diff) {
-            if (!window.ethereum) return addLog("CRITICAL: METAMASK_NOT_FOUND");
-            
+            if (!window.ethereum) return addLog("CRITICAL: METAMASK_MISSING");
             try {
                 const wallet = new ethers.providers.Web3Provider(window.ethereum);
                 const signer = wallet.getSigner();
                 const bot = new ethers.Contract(CONTRACT_ADDR, ["function strike(uint256) external"], signer);
                 
-                addLog(`PROFIT_DETECTED: $${diff}. SENDING_TX...`);
-                document.getElementById("status").innerText = "FLASH_LOAN_IN_PROGRESS...";
-                
-                // Gas Limit increased for Base Flashblocks compatibility
+                addLog(`TARGET_HIT: $${diff}. EXECUTING...`);
                 const tx = await bot.strike(LOAN_AMOUNT, { gasLimit: 1000000 });
-                addLog(`TX_BROADCAST: ${tx.hash.substring(0,12)}...`);
-                
+                addLog(`TX_HASH: ${tx.hash.substring(0,15)}...`);
                 await tx.wait();
-                addLog("STRIKE_CONFIRMED. ARBITRAGE_SUCCESS.");
-                document.getElementById("status").innerText = "OPPORTUNITY_LOCKED";
+                addLog("STRIKE_CONFIRMED.");
             } catch (e) {
-                addLog("TX_FAILED: Check balance or slippage.");
-                console.error(e);
+                addLog("TX_REJECTED_OR_INSUFFICIENT_PROFIT");
             }
         }
 
-        // 3. THE 24/7 ENGINE (CSP-SECURE)
         async function runScanner() {
-            addLog("ELB_461: Starting 24/7 Scanning Loop...");
+            addLog("ELB_461: Starting Multi-RPC Loop...");
             
             while (true) {
+                const provider = new ethers.providers.JsonRpcProvider(RPC_LIST[currentRpcIndex]);
+                
                 try {
                     const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
                     const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address, address) view returns (uint, bool)"], provider);
 
-                    // Fetch both prices simultaneously
                     const [poolData, aeroData] = await Promise.all([
                         pool.slot0(),
                         router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC, AERO_FACTORY)
                     ]);
 
-                    // Native BigInt Math (Bypasses SES/CSP restrictions)
                     const sqrtPriceX96 = BigInt(poolData[0]);
                     const uPriceNum = (Number((sqrtPriceX96 * sqrtPriceX96 * 1000000000000n) / (2n**192n)) / 1e6);
                     const aPriceNum = (Number(aeroData[0]) / 1e6);
                     
-                    const uPrice = uPriceNum.toFixed(2);
-                    const aPrice = aPriceNum.toFixed(2);
                     const diff = (aPriceNum - uPriceNum).toFixed(2);
 
-                    // UI Updates
-                    document.getElementById("uni-val").innerText = "$" + uPrice;
-                    document.getElementById("aero-val").innerText = "$" + aPrice;
-                    const spreadEl = document.getElementById("spread");
-                    spreadEl.innerText = (diff > 0 ? "+" : "") + "$" + diff;
-                    spreadEl.style.color = diff > 0 ? "#00ff00" : "#ff3333";
+                    document.getElementById("uni-val").innerText = "$" + uPriceNum.toFixed(2);
+                    document.getElementById("aero-val").innerText = "$" + aPriceNum.toFixed(2);
+                    document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
+                    document.getElementById("status").innerText = "ELB_SCANNER_ONLINE";
 
-                    // 4. AUTO-EXECUTION CHECK
                     if (parseFloat(diff) >= PROFIT_THRESHOLD) {
                         await executeStrike(diff);
-                    } else {
-                        document.getElementById("status").innerText = "MONITORING_SPREAD...";
                     }
 
                 } catch (err) {
-                    // This catches the '0x' or 'revert' error silently and retries
-                    document.getElementById("status").innerText = "RPC_RECONNECTING...";
+                    // SWITCH RPC IF RATE LIMITED (429)
+                    currentRpcIndex = (currentRpcIndex + 1) % RPC_LIST.length;
+                    document.getElementById("status").innerText = "RPC_ROTATING...";
+                    addLog(`RPC_LIMIT_REACHED: Rotating to Node #${currentRpcIndex}`);
                 }
                 
-                // 3 second delay to keep RPC healthy
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                // 3.5 Second Delay to stay safe 24/7
+                await new Promise(resolve => setTimeout(resolve, 3500));
             }
         }
 
-        // Initial Boot
         window.addEventListener('load', runScanner);
     </script>
 </body>
