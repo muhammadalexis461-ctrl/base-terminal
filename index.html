@@ -2,39 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Base Terminal | ELB 461 HARDENED</title>
+    <title>ELB 461 | AUTO-STRIKE v3.0</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
-        .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff0033; }
+        .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff00; }
         .data-line { display: flex; justify-content: space-between; margin: 15px 0; border-bottom: 1px solid #004400; padding-bottom: 5px; }
         .profit { font-size: 2.5rem; margin: 20px 0; color: #fff; text-shadow: 0 0 10px #00ff00; }
-        button { width: 100%; padding: 15px; margin: 5px 0; font-weight: bold; cursor: pointer; font-family: 'Courier New'; transition: 0.3s; }
-        #strike-btn { background: #111; color: #333; border: 1px solid #333; }
-        #strike-btn.active { background: #00ff00; color: #000; border: none; cursor: pointer; box-shadow: 0 0 15px #00ff00; }
-        #sync-btn { background: #004400; color: #00ff00; border: 1px solid #00ff00; font-size: 0.7rem; }
-        #status { font-size: 0.7rem; color: #888; margin-top: 20px; text-transform: uppercase; }
+        #status { font-size: 0.8rem; color: #ff00ff; margin-top: 20px; text-transform: uppercase; font-weight: bold; }
+        .log-box { height: 100px; background: #111; border: 1px solid #333; overflow-y: scroll; font-size: 0.6rem; text-align: left; padding: 10px; margin-top: 10px; color: #888; }
     </style>
 </head>
 <body>
 
     <div class="terminal">
-        <h2 style="margin-top:0;">ELB_461_CORE v2.3</h2>
-        <div class="data-line"><span>UNI_V3_PRICE:</span> <span id="uni-val">...</span></div>
-        <div class="data-line"><span>AERO_PRICE:</span> <span id="aero-val">...</span></div>
+        <h2 style="margin:0;">ELB_461_AUTONOMOUS</h2>
+        <div class="data-line"><span>UNI_V3:</span> <span id="uni-val">...</span></div>
+        <div class="data-line"><span>AERO:</span> <span id="aero-val">...</span></div>
         <div id="spread" class="profit">$0.00</div>
         
-        <button id="strike-btn" disabled>SECURE_BOOT...</button>
-        <button id="sync-btn">MANUAL_FORCE_SYNC</button>
-        
-        <p id="status">BYPASSING_CSP_LOCKS...</p>
+        <div id="status">SCANNING_FOR_OPPORTUNITY...</div>
+        <div class="log-box" id="logs">SYSTEM_BOOT_SEQUENCE_COMPLETE...</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
-        // 1. HARDENED INFRASTRUCTURE
+        // 1. PROJECT ELB 461 - CORE CONFIG
         const RPC = "https://mainnet.base.org";
         const provider = new ethers.providers.JsonRpcProvider(RPC);
+        
+        // Threshold for execution (e.g., Strike if profit > $0.50)
+        const PROFIT_THRESHOLD = 0.50; 
+        const LOAN_AMOUNT = ethers.utils.parseEther("0.01"); // Adjust based on your Remix contract
 
         const WETH = "0x4200000000000000000000000000000000000006".toLowerCase();
         const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".toLowerCase();
@@ -43,68 +42,77 @@
         const AERO_FACTORY = "0x420DD3807E0e10597d288A479AD529dcEEFE731B".toLowerCase();
         const CONTRACT_ADDR = "0xa94f006639da96911B042ef9461F08Bae58e9bA4".toLowerCase();
 
-        // 2. CSP-PROOF DELAY (Uses Promises instead of setTimeout callback)
-        const delay = (ms) => new Promise(res => setTimeout(res, ms));
+        function addLog(msg) {
+            const box = document.getElementById("logs");
+            box.innerHTML += `<div>> ${msg}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
 
-        // 3. CONTINUOUS ASYNC LOOP (Solves SES unpermitted intrinsic issue)
-        async function startTerminal() {
-            while (true) {
-                try {
-                    document.getElementById("status").innerText = "CORE_SYNC_ACTIVE...";
-                    
-                    const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
-                    const poolData = await pool.slot0();
-                    
-                    const sqrtPriceX96 = BigInt(poolData[0]);
-                    const uPrice = (Number((sqrtPriceX96 * sqrtPriceX96 * BigInt(1e12)) / (BigInt(2)**BigInt(192))) / 1e6).toFixed(2);
-                    document.getElementById("uni-val").innerText = "$" + uPrice;
-
-                    const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint amountIn, address tokenIn, address tokenOut, address factory) view returns (uint amount, bool stable)"], provider);
-                    const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC, AERO_FACTORY);
-                    const aPrice = (Number(aeroData.amount) / 1e6).toFixed(2);
-                    document.getElementById("aero-val").innerText = "$" + aPrice;
-
-                    const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
-                    const spreadEl = document.getElementById("spread");
-                    spreadEl.innerText = (diff > 0 ? "+" : "") + "$" + diff;
-                    spreadEl.style.color = diff > 0 ? "#00ff00" : "#ff3333";
-                    
-                    const btn = document.getElementById("strike-btn");
-                    btn.innerText = "WAITING_FOR_SIGNAL";
-                    btn.disabled = false;
-                    btn.classList.add("active");
-                    document.getElementById("status").innerText = "STATUS_SECURE_ONLINE";
-
-                } catch (err) {
-                    console.error("ELB_SYNC_ERROR:", err);
-                    document.getElementById("status").innerText = "RPC_RETRY_SECURE...";
-                }
+        // 2. THE STRIKE LOGIC (AUTO-CALLS REMIX CONTRACT)
+        async function autoStrike(diff) {
+            if (!window.ethereum) return addLog("ERROR: METAMASK_NOT_FOUND");
+            
+            try {
+                const wallet = new ethers.providers.Web3Provider(window.ethereum);
+                const signer = wallet.getSigner();
+                const bot = new ethers.Contract(CONTRACT_ADDR, ["function strike(uint256) external"], signer);
                 
-                // Wait 10 seconds before next iteration
-                await delay(10000);
+                addLog(`PROFIT_DETECTED: $${diff}. EXECUTING_STRIKE...`);
+                document.getElementById("status").innerText = "EXECUTING_FLASH_LOAN...";
+                
+                const tx = await bot.strike(LOAN_AMOUNT, { gasLimit: 800000 });
+                addLog(`TX_SENT: ${tx.hash.substring(0,10)}...`);
+                
+                await tx.wait();
+                addLog("STRIKE_CONFIRMED_ON_CHAIN.");
+                document.getElementById("status").innerText = "SUCCESS_REBOOTING_SCANNER";
+            } catch (e) {
+                addLog("STRIKE_FAILED_OR_REJECTED.");
+                console.error(e);
             }
         }
 
-        async function strike() {
-            if (!window.ethereum) return alert("MetaMask Missing!");
-            const wallet = new ethers.providers.Web3Provider(window.ethereum);
-            await wallet.send("eth_requestAccounts", []);
-            const signer = wallet.getSigner();
-            const bot = new ethers.Contract(CONTRACT_ADDR, ["function strike(uint256) external"], signer);
-            
-            try {
-                const tx = await bot.strike(ethers.utils.parseEther("0.01"), { gasLimit: 500000 });
-                document.getElementById("status").innerText = "TX_PENDING...";
-                await tx.wait();
-                document.getElementById("status").innerText = "STRIKE_SUCCESS";
-            } catch (e) { document.getElementById("status").innerText = "TX_REJECTED"; }
+        // 3. THE 24/7 AUTONOMOUS LOOP
+        async function runAutoScanner() {
+            while (true) {
+                try {
+                    const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
+                    const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address, address) view returns (uint, bool)"], provider);
+
+                    const [poolData, aeroData] = await Promise.all([
+                        pool.slot0(),
+                        router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC, AERO_FACTORY)
+                    ]);
+
+                    // Math Calculation
+                    const uPrice = (Number((BigInt(poolData[0])**2n * 1000000000000n) / (2n**192n)) / 1e6).toFixed(2);
+                    const aPrice = (Number(aeroData[0]) / 1e6).toFixed(2);
+                    const diff = parseFloat((aPrice - uPrice).toFixed(2));
+
+                    // UI Update
+                    document.getElementById("uni-val").innerText = "$" + uPrice;
+                    document.getElementById("aero-val").innerText = "$" + aPrice;
+                    document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
+
+                    // 4. AUTO-DECISION ENGINE
+                    if (diff >= PROFIT_THRESHOLD) {
+                        await autoStrike(diff);
+                    } else {
+                        document.getElementById("status").innerText = "SCANNING_OPPORTUNITY...";
+                    }
+
+                } catch (e) {
+                    console.error(e);
+                    document.getElementById("status").innerText = "RPC_RETRYING...";
+                }
+                
+                // Sleep for 2 seconds to stay under RPC limits but beat other bots
+                await new Promise(r => setTimeout(r, 2000));
+            }
         }
 
-        document.getElementById("sync-btn").addEventListener("click", () => location.reload()); // Cleanest reset for SES
-        document.getElementById("strike-btn").addEventListener("click", strike);
-        
-        // Final Execution (Start the infinite loop)
-        startTerminal();
+        // Start the engine
+        window.addEventListener('load', runAutoScanner);
     </script>
 </body>
 </html>
