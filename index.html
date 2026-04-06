@@ -51,16 +51,16 @@
                 const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
                 const poolData = await pool.slot0();
                 
-                // Manual Math to avoid Pow evaluation issues
+                // Manual BigInt Math to avoid Pow evaluation issues
                 const ratio = BigInt(poolData[0]) * BigInt(poolData[0]);
                 const shift = BigInt(2)**BigInt(192);
                 const uPrice = (Number(ratio * BigInt(1e12) / shift) / 1e6).toFixed(2);
-                document.getElementById("uni-val").innerText = `$${uPrice}`;
+                document.getElementById("uni-val").innerText = "$" + uPrice;
 
                 const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address) view returns (uint, bool)"], provider);
                 const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC);
                 const aPrice = (Number(aeroData[0]) / 1e6).toFixed(2);
-                document.getElementById("aero-val").innerText = `$${aPrice}`;
+                document.getElementById("aero-val").innerText = "$" + aPrice;
 
                 const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
                 document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
@@ -92,7 +92,7 @@
             } catch (e) { document.getElementById("status").innerText = "TX_REJECTED"; }
         }
 
-        // Use Function Reference instead of String for setInterval
+        // Pass the function reference directly (no strings)
         document.getElementById("sync-btn").addEventListener("click", update);
         document.getElementById("strike-btn").addEventListener("click", strike);
         
