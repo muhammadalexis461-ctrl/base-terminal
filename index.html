@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Base Terminal | v1.8 PRO</title>
+    <title>Base Terminal | v1.9 PRO</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff0033; }
@@ -18,25 +18,30 @@
 <body>
 
     <div class="terminal">
-        <h2 style="margin-top:0;">BASE_CORE_OS v1.8</h2>
-        <div class="data-line"><span>UNI_V3_ETH/USDC:</span> <span id="uni-val">OFFLINE</span></div>
-        <div class="data-line"><span>AERO_ETH/USDC:</span> <span id="aero-val">OFFLINE</span></div>
+        <h2 style="margin-top:0;">BASE_CORE_OS v1.9</h2>
+        <div class="data-line"><span>UNI_V3_ETH/USDC:</span> <span id="uni-val">SYNCING...</span></div>
+        <div class="data-line"><span>AERO_ETH/USDC:</span> <span id="aero-val">SYNCING...</span></div>
         <div id="spread" class="profit">$0.00</div>
         
-        <button id="strike-btn" disabled>INITIALIZING...</button>
+        <button id="strike-btn" disabled>CONNECTING_NODES...</button>
         <button id="sync-btn">MANUAL_FORCE_SYNC</button>
         
-        <p id="status">CONNECTING_TO_BASE_MAINNET...</p>
+        <p id="status">INIT_TRIPLE_BRIDGE...</p>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
-        // 1. GLOBAL SETTINGS
-        const RPC = "https://mainnet.base.org";
-        const provider = new ethers.providers.StaticJsonRpcProvider(RPC);
+        // 1. TRIPLE BRIDGE SYSTEM (Tries multiple nodes for stability in Zaria)
+        const NODES = [
+            "https://mainnet.base.org",
+            "https://base.meowrpc.com",
+            "https://base.llamarpc.com"
+        ];
+        
+        let nodeIndex = 0;
+        let provider = new ethers.providers.JsonRpcProvider(NODES[nodeIndex]);
 
-        // 2. VERIFIED CHECKSUM ADDRESSES (Fixed for Ethers.js 5.7)
         const WETH = "0x4200000000000000000000000000000000000006";
         const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
         const UNI_POOL = "0xd0b53D9277642d2a2b174886eba035501dc1D19e"; 
@@ -45,21 +50,18 @@
 
         async function update() {
             try {
-                document.getElementById("status").innerText = "FETCHING_DATA...";
+                document.getElementById("status").innerText = `FETCHING (BRIDGE_${nodeIndex})...`;
                 
-                // Uniswap Price Fetching
                 const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
                 const poolData = await pool.slot0();
                 const uPrice = (Math.pow(poolData[0] / Math.pow(2, 96), 2) * 1e12).toFixed(2);
                 document.getElementById("uni-val").innerText = `$${uPrice}`;
 
-                // Aerodrome Price Fetching
                 const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address) view returns (uint, bool)"], provider);
                 const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC);
                 const aPrice = ethers.utils.formatUnits(aeroData[0], 6);
                 document.getElementById("aero-val").innerText = `$${parseFloat(aPrice).toFixed(2)}`;
 
-                // Update UI Logic
                 const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
                 document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
                 
@@ -70,8 +72,11 @@
                 document.getElementById("status").innerText = "STATUS_ONLINE";
 
             } catch (err) {
-                console.error("Sync Error:", err);
-                document.getElementById("status").innerText = "RPC_LAG: RETRYING...";
+                console.error("Bridge Error:", err);
+                // Failover logic
+                nodeIndex = (nodeIndex + 1) % NODES.length;
+                provider = new ethers.providers.JsonRpcProvider(NODES[nodeIndex]);
+                document.getElementById("status").innerText = "FAILOVER: SWITCHING BRIDGE...";
             }
         }
 
@@ -83,21 +88,19 @@
             const bot = new ethers.Contract(CONTRACT, ["function strike(uint256) external"], signer);
             
             try {
-                document.getElementById("status").innerText = "CHECKING_GAS...";
-                const tx = await bot.strike(ethers.utils.parseEther("0.001"), { gasLimit: 500000 });
-                document.getElementById("status").innerText = "TX_PENDING...";
+                document.getElementById("status").innerText = "AWAITING_WALLET...";
+                const tx = await bot.strike(ethers.utils.parseEther("0.01"), { gasLimit: 500000 });
+                document.getElementById("status").innerText = "TX_BROADCASTED...";
                 await tx.wait();
-                document.getElementById("status").innerText = "SUCCESSFUL_STRIKE";
-            } catch (e) { 
-                document.getElementById("status").innerText = "TX_FAILED"; 
-            }
+                document.getElementById("status").innerText = "STRIKE_CONFIRMED";
+            } catch (e) { document.getElementById("status").innerText = "STRIKE_FAILED"; }
         }
 
         document.getElementById("sync-btn").addEventListener("click", update);
         document.getElementById("strike-btn").addEventListener("click", strike);
         
         update();
-        setInterval(update, 12000); 
+        setInterval(update, 10000); 
     </script>
 </body>
 </html>
