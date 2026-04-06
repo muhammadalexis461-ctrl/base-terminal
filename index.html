@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ELB 461 | ONE-WAY v3.3</title>
+    <title>ELB 461 | ONE-WAY STABLE</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 480px; box-shadow: 0 0 20px #00ff00; box-sizing: border-box; }
@@ -14,12 +14,12 @@
 </head>
 <body>
     <div class="terminal">
-        <h2 style="margin:0;">ELB_461_ONE_WAY</h2>
+        <h2 style="margin:0;">ELB_461_ONE_WAY_v3.5</h2>
         <div class="data-line"><span>UNI_V3 (0.05%):</span> <span id="uni-005">...</span></div>
         <div class="data-line"><span>UNI_V3 (0.3%):</span>  <span id="uni-03">...</span></div>
         <div id="spread" class="profit">$0.00</div>
-        <div id="status">SCANNING_FOR_ENTRY...</div>
-        <div class="log-box" id="logs">READY_FOR_SINGLE_STRIKE...</div>
+        <div id="status">INIT_SYSTEM...</div>
+        <div class="log-box" id="logs">STABILITY_MODE_ACTIVE...</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
@@ -29,8 +29,7 @@
             RPCs: ["https://mainnet.base.org", "https://base.llamarpc.com"],
             UNI_POOL_005: "0xd0b53D9277642d899DF5C87A3966A349A798F224",
             UNI_POOL_03:  "0x6c561B446416E1A00E8E93E221854d6eA4171372",
-            // YOUR ONE-WAY CONTRACT ADDRESS
-            BOT: "0x700d70d8d1D4833BCF882340E6b005B14FE542D4" 
+            BOT: "0x700d70d8d1D4833BCF882340E6b005B14FE542D4" // Double check this address
         };
 
         const SLOT0_ABI = ["function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"];
@@ -47,16 +46,16 @@
             try {
                 const p = new ethers.BrowserProvider(window.ethereum);
                 const s = await p.getSigner();
-                // ABI for the ONE-WAY contract (only takes amount)
                 const c = new ethers.Contract(CONFIG.BOT, ["function strike(uint256) external"], s);
                 
-                log(`STRIKING SPREAD: +$${diff.toFixed(2)}`);
-                const tx = await c.strike(ethers.parseEther("0.1"), { gasLimit: 1000000 });
+                log(`STRIKING_GAP: +$${diff.toFixed(2)}`);
+                // Borrowing 0.1 ETH to avoid high slippage reverts
+                const tx = await c.strike(ethers.parseEther("0.1"), { gasLimit: 1200000 });
                 log("TX_SENT: " + tx.hash.slice(0,10));
                 await tx.wait();
-                log("SUCCESS: PROFIT_SECURED");
+                log("STRIKE_CONFIRMED");
             } catch (e) {
-                log("STRIKE_REVERTED: No profit or high gas");
+                log("STRIKE_BLOCKED: Profit Margin Too Thin");
             }
         }
 
@@ -66,22 +65,31 @@
                     const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
                     const p1 = new ethers.Contract(CONFIG.UNI_POOL_005, SLOT0_ABI, provider);
                     const p2 = new ethers.Contract(CONFIG.UNI_POOL_03, SLOT0_ABI, provider);
-                    const [s1, s2] = await Promise.all([p1.slot0(), p2.slot0()]);
+
+                    // Fetch both prices with a timeout
+                    const [s1, s2] = await Promise.race([
+                        Promise.all([p1.slot0(), p2.slot0()]),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000))
+                    ]);
 
                     const price005 = (Number(s1.sqrtPriceX96) / (2**96))**2 * 1e12;
-                    const price03 = (Number(s2.sqrtPriceX96) / (2**96))**2 * 1e12;
+                    const price03 = (Number(s2.slot0 ? s2.slot0.sqrtPriceX96 : s2.sqrtPriceX96) / (2**96))**2 * 1e12;
                     const diff = price03 - price005;
 
                     document.getElementById("uni-005").innerText = "$" + price005.toFixed(2);
                     document.getElementById("uni-03").innerText = "$" + price03.toFixed(2);
                     document.getElementById("spread").innerText = (diff >= 0 ? "+" : "-") + "$" + Math.abs(diff).toFixed(2);
-                    document.getElementById("status").innerText = "ELB_SCANNER_LIVE";
+                    document.getElementById("status").innerText = "LIVE_SCANNING";
 
-                    // CRITICAL: Only trigger on POSITIVE spread over $4.00
-                    if (diff > 4.00) await strike(diff);
+                    // Trigger only if spread is healthy
+                    if (diff > 4.50) await strike(diff);
 
-                } catch (e) { currentRpc = (currentRpc + 1) % CONFIG.RPCs.length; }
-                await new Promise(r => setTimeout(r, 4000));
+                    await new Promise(r => setTimeout(r, 4000));
+                } catch (e) { 
+                    currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
+                    document.getElementById("status").innerText = "RECONNECTING...";
+                    await new Promise(r => setTimeout(r, 5000)); 
+                }
             }
         }
         window.addEventListener('load', start);
