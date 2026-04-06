@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ELB 461 | CSP-HARDENED v3.2</title>
+    <title>ELB 461 | ONE-WAY v3.3</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 480px; box-shadow: 0 0 20px #00ff00; box-sizing: border-box; }
@@ -14,36 +14,26 @@
 </head>
 <body>
     <div class="terminal">
-        <h2 style="margin:0;">ELB_461_SECURE_CORE</h2>
-        <div class="data-line"><span>UNISWAP_V3 (0.05%):</span> <span id="uni-005">...</span></div>
-        <div class="data-line"><span>UNISWAP_V3 (0.3%):</span>  <span id="uni-03">...</span></div>
+        <h2 style="margin:0;">ELB_461_ONE_WAY</h2>
+        <div class="data-line"><span>UNI_V3 (0.05%):</span> <span id="uni-005">...</span></div>
+        <div class="data-line"><span>UNI_V3 (0.3%):</span>  <span id="uni-03">...</span></div>
         <div id="spread" class="profit">$0.00</div>
-        <div id="status">INITIALIZING_SANDBOX...</div>
-        <div class="log-box" id="logs">CSP_POLICY_ENFORCED...</div>
+        <div id="status">SCANNING_FOR_ENTRY...</div>
+        <div class="log-box" id="logs">READY_FOR_SINGLE_STRIKE...</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
 
     <script>
         const CONFIG = {
-            RPCs: [
-                "https://mainnet.base.org",
-                "https://base.llamarpc.com",
-                "https://base-rpc.publicnode.com",
-                "https://1rpc.io/base",
-                "https://base.meowrpc.com"
-            ],
+            RPCs: ["https://mainnet.base.org", "https://base.llamarpc.com"],
             UNI_POOL_005: "0xd0b53D9277642d899DF5C87A3966A349A798F224",
             UNI_POOL_03:  "0x6c561B446416E1A00E8E93E221854d6eA4171372",
-            WETH: "0x4200000000000000000000000000000000000006",
-            USDC: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-            BOT:  "0xa94f006639da96911B042ef9461F08Bae58e9bA4"
+            // YOUR ONE-WAY CONTRACT ADDRESS
+            BOT: "0x700d70d8d1D4833BCF882340E6b005B14FE542D4" 
         };
 
-        const SLOT0_ABI = [
-            "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"
-        ];
-
+        const SLOT0_ABI = ["function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"];
         let currentRpc = 0;
 
         function log(m) {
@@ -52,91 +42,48 @@
             b.scrollTop = b.scrollHeight;
         }
 
-        function calcPrice(sqrtPriceX96) {
-            const Q96 = Number(2n ** 96n);
-            const sqrtPrice = Number(sqrtPriceX96) / Q96;
-            return sqrtPrice * sqrtPrice * 1e12;
-        }
-
-        async function getProvider() {
-            for (let i = 0; i < CONFIG.RPCs.length; i++) {
-                const idx = (currentRpc + i) % CONFIG.RPCs.length;
-                const url = CONFIG.RPCs[idx];
-                try {
-                    const p = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true });
-                    const block = await Promise.race([
-                        p.getBlockNumber(),
-                        new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 5000))
-                    ]);
-                    if (block > 0) {
-                        currentRpc = idx;
-                        log("RPC_CONNECTED: " + url.split("/")[2]);
-                        return p;
-                    }
-                } catch {
-                    log("RPC_FAIL: " + url.split("/")[2] + " — rotating");
-                    currentRpc = (idx + 1) % CONFIG.RPCs.length;
-                }
-            }
-            log("ALL_RPC_FAILED: retrying");
-            return null;
-        }
-
         async function strike(diff) {
-            if (!window.ethereum) return log("METAMASK_NOT_FOUND");
+            if (!window.ethereum) return log("ERR: NO_METAMASK");
             try {
                 const p = new ethers.BrowserProvider(window.ethereum);
                 const s = await p.getSigner();
+                // ABI for the ONE-WAY contract (only takes amount)
                 const c = new ethers.Contract(CONFIG.BOT, ["function strike(uint256) external"], s);
+                
+                log(`STRIKING SPREAD: +$${diff.toFixed(2)}`);
                 const tx = await c.strike(ethers.parseEther("1.0"), { gasLimit: 1000000 });
-                log("STRIKE_SENT: " + tx.hash.slice(0, 10) + " diff=$" + diff.toFixed(2));
+                log("TX_SENT: " + tx.hash.slice(0,10));
                 await tx.wait();
-                log("STRIKE_SUCCESS");
+                log("SUCCESS: PROFIT_SECURED");
             } catch (e) {
-                log("STRIKE_ABORTED: " + e.message.slice(0, 50));
+                log("STRIKE_REVERTED: No profit or high gas");
             }
         }
 
         async function start() {
-            log("BOOTING_ELB_461_SYSTEM");
-            document.getElementById("status").innerText = "CONNECTING_TO_BASE...";
-
             while (true) {
-                const provider = await getProvider();
-                if (!provider) {
-                    await new Promise(r => setTimeout(r, 8000));
-                    continue;
-                }
-
                 try {
-                    const pool005 = new ethers.Contract(CONFIG.UNI_POOL_005, SLOT0_ABI, provider);
-                    const pool03  = new ethers.Contract(CONFIG.UNI_POOL_03,  SLOT0_ABI, provider);
+                    const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
+                    const p1 = new ethers.Contract(CONFIG.UNI_POOL_005, SLOT0_ABI, provider);
+                    const p2 = new ethers.Contract(CONFIG.UNI_POOL_03, SLOT0_ABI, provider);
+                    const [s1, s2] = await Promise.all([p1.slot0(), p2.slot0()]);
 
-                    const [s1, s2] = await Promise.all([pool005.slot0(), pool03.slot0()]);
-
-                    const price005 = calcPrice(s1.sqrtPriceX96);
-                    const price03  = calcPrice(s2.sqrtPriceX96);
+                    const price005 = (Number(s1.sqrtPriceX96) / (2**96))**2 * 1e12;
+                    const price03 = (Number(s2.sqrtPriceX96) / (2**96))**2 * 1e12;
                     const diff = price03 - price005;
 
                     document.getElementById("uni-005").innerText = "$" + price005.toFixed(2);
-                    document.getElementById("uni-03").innerText  = "$" + price03.toFixed(2);
-                    document.getElementById("spread").innerText  =
-                        (diff >= 0 ? "+" : "-") + "$" + Math.abs(diff).toFixed(2);
+                    document.getElementById("uni-03").innerText = "$" + price03.toFixed(2);
+                    document.getElementById("spread").innerText = (diff >= 0 ? "+" : "-") + "$" + Math.abs(diff).toFixed(2);
                     document.getElementById("status").innerText = "ELB_SCANNER_LIVE";
 
-                    // LOGIC UPDATED: Removed Math.abs(). Now ONLY triggers if diff is POSITIVE and > 4.00
+                    // CRITICAL: Only trigger on POSITIVE spread over $4.00
                     if (diff > 4.00) await strike(diff);
 
-                } catch (e) {
-                    currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
-                    log("QUERY_ERROR: " + e.message.slice(0, 60) + " — rotating RPC");
-                    document.getElementById("status").innerText = "RPC_ROTATING...";
-                }
-
+                } catch (e) { currentRpc = (currentRpc + 1) % CONFIG.RPCs.length; }
                 await new Promise(r => setTimeout(r, 4000));
             }
         }
-
         window.addEventListener('load', start);
     </script>
 </body>
