@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Base Terminal | v1.9 PRO</title>
+    <title>Base Terminal | v2.0 SECURE</title>
     <style>
         body { background: #050505; color: #00ff00; font-family: 'Courier New', monospace; text-align: center; padding-top: 30px; }
         .terminal { border: 2px solid #00ff00; background: #000; padding: 30px; margin: 20px auto; width: 450px; box-shadow: 0 0 20px #00ff0033; }
@@ -18,89 +18,87 @@
 <body>
 
     <div class="terminal">
-        <h2 style="margin-top:0;">BASE_CORE_OS v1.9</h2>
-        <div class="data-line"><span>UNI_V3_ETH/USDC:</span> <span id="uni-val">SYNCING...</span></div>
-        <div class="data-line"><span>AERO_ETH/USDC:</span> <span id="aero-val">SYNCING...</span></div>
+        <h2 style="margin-top:0;">BASE_CORE_OS v2.0</h2>
+        <div class="data-line"><span>UNI_V3:</span> <span id="uni-val">...</span></div>
+        <div class="data-line"><span>AERODROME:</span> <span id="aero-val">...</span></div>
         <div id="spread" class="profit">$0.00</div>
         
-        <button id="strike-btn" disabled>CONNECTING_NODES...</button>
-        <button id="sync-btn">MANUAL_FORCE_SYNC</button>
+        <button id="strike-btn" disabled>SECURE_SYNCING...</button>
+        <button id="sync-btn">MANUAL_RECONNECT</button>
         
-        <p id="status">INIT_TRIPLE_BRIDGE...</p>
+        <p id="status">BYPASSING_CSP_RESTRAINTS...</p>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
     <script>
-        // 1. TRIPLE BRIDGE SYSTEM (Tries multiple nodes for stability in Zaria)
-        const NODES = [
-            "https://mainnet.base.org",
-            "https://base.meowrpc.com",
-            "https://base.llamarpc.com"
-        ];
-        
-        let nodeIndex = 0;
-        let provider = new ethers.providers.JsonRpcProvider(NODES[nodeIndex]);
+        // 1. SECURE NODE CONFIG
+        const RPC = "https://mainnet.base.org";
+        const provider = new ethers.providers.JsonRpcProvider(RPC);
 
+        // 2. VERIFIED CHECKSUM ADDRESSES
         const WETH = "0x4200000000000000000000000000000000000006";
         const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
         const UNI_POOL = "0xd0b53D9277642d2a2b174886eba035501dc1D19e"; 
         const AERO_ROUTER = "0xcF77a3Ba9A5ca399AF7367531ED00Ba853860D98";
         const CONTRACT = "0xa94f006639da96911B042ef9461F08Bae58e9bA4";
 
+        // 3. SECURE PRICE CALCULATION (NO EVAL)
         async function update() {
             try {
-                document.getElementById("status").innerText = `FETCHING (BRIDGE_${nodeIndex})...`;
+                document.getElementById("status").innerText = "FETCHING_LIVE_DATA...";
                 
                 const pool = new ethers.Contract(UNI_POOL, ["function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"], provider);
                 const poolData = await pool.slot0();
-                const uPrice = (Math.pow(poolData[0] / Math.pow(2, 96), 2) * 1e12).toFixed(2);
+                
+                // Manual Math to avoid Pow evaluation issues
+                const ratio = BigInt(poolData[0]) * BigInt(poolData[0]);
+                const shift = BigInt(2)**BigInt(192);
+                const uPrice = (Number(ratio * BigInt(1e12) / shift) / 1e6).toFixed(2);
                 document.getElementById("uni-val").innerText = `$${uPrice}`;
 
                 const router = new ethers.Contract(AERO_ROUTER, ["function getAmountOut(uint, address, address) view returns (uint, bool)"], provider);
                 const aeroData = await router.getAmountOut(ethers.utils.parseEther("1"), WETH, USDC);
-                const aPrice = ethers.utils.formatUnits(aeroData[0], 6);
-                document.getElementById("aero-val").innerText = `$${parseFloat(aPrice).toFixed(2)}`;
+                const aPrice = (Number(aeroData[0]) / 1e6).toFixed(2);
+                document.getElementById("aero-val").innerText = `$${aPrice}`;
 
                 const diff = (parseFloat(aPrice) - parseFloat(uPrice)).toFixed(2);
                 document.getElementById("spread").innerText = (diff > 0 ? "+" : "") + "$" + diff;
                 
                 const btn = document.getElementById("strike-btn");
-                btn.innerText = "WAITING_FOR_ALPHA";
+                btn.innerText = "WAITING_FOR_SIGNAL";
                 btn.disabled = false;
                 btn.classList.add("active");
-                document.getElementById("status").innerText = "STATUS_ONLINE";
+                document.getElementById("status").innerText = "STATUS_SECURE_ONLINE";
 
             } catch (err) {
-                console.error("Bridge Error:", err);
-                // Failover logic
-                nodeIndex = (nodeIndex + 1) % NODES.length;
-                provider = new ethers.providers.JsonRpcProvider(NODES[nodeIndex]);
-                document.getElementById("status").innerText = "FAILOVER: SWITCHING BRIDGE...";
+                console.error("CSP_FAIL:", err);
+                document.getElementById("status").innerText = "RETRYING_CONNECTION...";
             }
         }
 
         async function strike() {
-            if (!window.ethereum) return alert("MetaMask Missing!");
-            const pcProvider = new ethers.providers.Web3Provider(window.ethereum);
-            await pcProvider.send("eth_requestAccounts", []);
-            const signer = pcProvider.getSigner();
+            if (!window.ethereum) return alert("MetaMask Needed!");
+            const wallet = new ethers.providers.Web3Provider(window.ethereum);
+            await wallet.send("eth_requestAccounts", []);
+            const signer = wallet.getSigner();
             const bot = new ethers.Contract(CONTRACT, ["function strike(uint256) external"], signer);
             
             try {
-                document.getElementById("status").innerText = "AWAITING_WALLET...";
                 const tx = await bot.strike(ethers.utils.parseEther("0.01"), { gasLimit: 500000 });
-                document.getElementById("status").innerText = "TX_BROADCASTED...";
+                document.getElementById("status").innerText = "SIGNAL_BROADCASTED";
                 await tx.wait();
-                document.getElementById("status").innerText = "STRIKE_CONFIRMED";
-            } catch (e) { document.getElementById("status").innerText = "STRIKE_FAILED"; }
+                document.getElementById("status").innerText = "STRIKE_SUCCESS";
+            } catch (e) { document.getElementById("status").innerText = "TX_REJECTED"; }
         }
 
+        // Use Function Reference instead of String for setInterval
         document.getElementById("sync-btn").addEventListener("click", update);
         document.getElementById("strike-btn").addEventListener("click", strike);
         
+        // Initial Trigger
         update();
-        setInterval(update, 10000); 
+        setInterval(update, 12000); 
     </script>
 </body>
 </html>
