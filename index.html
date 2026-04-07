@@ -24,13 +24,13 @@
         h1 { font-size: 1.1rem; letter-spacing: 0.15em; margin-bottom: 6px; text-shadow: 0 0 8px var(--green); }
         .subtitle { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 20px; }
 
-        .work-badge {
+        .network-badge {
             width: 100%; max-width: 720px; text-align: center;
             font-size: 0.7rem; padding: 6px 12px; margin-bottom: 14px;
             border: 1px solid var(--border); background: var(--surface);
         }
-        #work-status { color: var(--red); font-weight: bold; }
-        #work-status.ok { color: var(--green); }
+        #network-status { color: var(--red); font-weight: bold; }
+        #network-status.ok { color: var(--green); }
 
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; margin-bottom: 16px; }
         .panel { border: 1px solid var(--border); background: var(--surface); padding: 16px; }
@@ -43,11 +43,11 @@
         .profit-amount { font-size: 3rem; font-weight: bold; color: #fff; text-shadow: 0 0 16px var(--green); }
         .profit-amount.positive { color: var(--green); } .profit-amount.negative { color: var(--red); }
 
-        .-profit-row { display: flex; justify-content: center; gap: 24px; margin-top: 10px; font-size: 0.72rem; }
-        .-item { text-align: center; }
-        .-item .n-label { color: #4a7a4a; display: block; }
-        .-item .n-val { color: var(--green); font-weight: bold; }
-        .-item .n-val.alert { color: var(--yellow); } .-item .n-val.neg { color: var(--red); }
+        .net-profit-row { display: flex; justify-content: center; gap: 24px; margin-top: 10px; font-size: 0.72rem; }
+        .net-item { text-align: center; }
+        .net-item .n-label { color: #4a7a4a; display: block; }
+        .net-item .n-val { color: var(--green); font-weight: bold; }
+        .net-item .n-val.alert { color: var(--yellow); } .net-item .n-val.neg { color: var(--red); }
 
         .status-bar { width: 100%; max-width: 720px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.65rem; margin-bottom: 16px; }
         #status-text { color: var(--yellow); letter-spacing: 0.15em; }
@@ -70,8 +70,8 @@
     </style>
 </head>
 <body>
-    <h1>BASE_MAIN ARB_BOT V3.0</h1>
-    <p class="subtitle">BALANCER_VAULT &middot; DIRECTIONAL_ARB &middot; UNI&harr;AERO &middot; USDC_FLASH &middot; $5__GUARD &middot; SIMULATE_FIRST</p>
+    <h1>BASE_MAINNET ARB_BOT V3.0</h1>
+    <p class="subtitle">BALANCER_VAULT &middot; DIRECTIONAL_ARB &middot; UNI&harr;AERO &middot; USDC_FLASH &middot; $5_NET_GUARD &middot; SIMULATE_FIRST</p>
 
     <div class="network-badge">
         NETWORK: <span id="network-status">CHECKING...</span>
