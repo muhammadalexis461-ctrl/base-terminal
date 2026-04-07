@@ -23,6 +23,7 @@
         }
         h1 { font-size: 1.1rem; letter-spacing: 0.15em; margin-bottom: 6px; text-shadow: 0 0 8px var(--green); }
         .subtitle { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 20px; }
+
         .network-badge {
             width: 100%; max-width: 720px; text-align: center;
             font-size: 0.7rem; padding: 6px 12px; margin-bottom: 14px;
@@ -30,34 +31,41 @@
         }
         #network-status { color: var(--red); font-weight: bold; }
         #network-status.ok { color: var(--green); }
+
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; margin-bottom: 16px; }
         .panel { border: 1px solid var(--border); background: var(--surface); padding: 16px; }
         .panel-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
         .data-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 0.78rem; }
         .data-row .label { color: #4a7a4a; } .data-row .value { color: var(--green); font-weight: bold; }
+
         .profit-display { border: 1px solid var(--border); background: var(--surface); padding: 20px; text-align: center; margin-bottom: 16px; width: 100%; max-width: 720px; }
         .profit-label { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 8px; }
         .profit-amount { font-size: 3rem; font-weight: bold; color: #fff; text-shadow: 0 0 16px var(--green); }
         .profit-amount.positive { color: var(--green); } .profit-amount.negative { color: var(--red); }
+
         .net-profit-row { display: flex; justify-content: center; gap: 24px; margin-top: 10px; font-size: 0.72rem; }
         .net-item { text-align: center; }
         .net-item .n-label { color: #4a7a4a; display: block; }
         .net-item .n-val { color: var(--green); font-weight: bold; }
         .net-item .n-val.alert { color: var(--yellow); } .net-item .n-val.neg { color: var(--red); }
+
         .status-bar { width: 100%; max-width: 720px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.65rem; margin-bottom: 16px; }
         #status-text { color: var(--yellow); letter-spacing: 0.15em; }
         #rpc-indicator { color: var(--dim-green); }
         #tick-counter { color: #3a5a3a; }
+
         .pool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 720px; margin-bottom: 16px; }
         .pool-card { border: 1px solid var(--border); background: var(--surface); padding: 12px; text-align: center; font-size: 0.7rem; }
         .pool-card .p-name { color: var(--dim-green); letter-spacing: 0.1em; margin-bottom: 4px; }
         .pool-card .p-price { color: var(--green); font-size: 1.1rem; font-weight: bold; }
         .pool-card .p-tag { font-size: 0.6rem; margin-top: 4px; }
         .pool-card .p-tag.buy { color: #00cc33; } .pool-card .p-tag.sell { color: var(--yellow); }
+
         .log-box { width: 100%; max-width: 720px; height: 160px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; text-align: left; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
         .log-box .log-entry { margin-bottom: 2px; }
         .log-box .log-entry.strike { color: var(--yellow); } .log-box .log-entry.success { color: var(--green); }
         .log-box .log-entry.error { color: var(--red); } .log-box .log-entry.info { color: var(--dim-green); }
+
         .footer-note { font-size: 0.6rem; color: #2a4a2a; text-align: center; max-width: 720px; line-height: 1.6; }
     </style>
 </head>
@@ -111,7 +119,7 @@
             <div class="data-row"><span class="label">PAIR</span><span class="value">USDC/WETH</span></div>
             <div class="data-row"><span class="label">DEX_A</span><span class="value">UNISWAP_V3</span></div>
             <div class="data-row"><span class="label">DEX_B</span><span class="value">AERODROME</span></div>
-            <div class="data-row"><span class="label">CONTRACT</span><span class="value">DEPLOY_NEW</span></div>
+            <div class="data-row"><span class="label">CONTRACT</span><span class="value">0xd615...FB77</span></div>
             <div class="data-row"><span class="label">CHAIN</span><span class="value">BASE (8453)</span></div>
         </div>
     </div>
@@ -142,7 +150,7 @@
         ],
         UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
         AERO_POOL:           "0xcDAC0d6c6C59727a65F871236188350531885C43",
-        BOT_CONTRACT:        "0x0000000000000000000000000000000000000000", // ← PASTE YOUR DEPLOYED ADDRESS HERE
+        BOT_CONTRACT:        "0xd6154C56A234202708893070880FF51E0d5CFB77",
         WETH:                "0x4200000000000000000000000000000000000006",
         USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         LOAN_AMOUNT_USDC:    5000,
@@ -197,7 +205,10 @@
 
     async function getAeroPriceCL(provider) {
         const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_CL_ABI, provider);
-        const [slot0Data, token0Addr] = await Promise.all([pool.slot0(), pool.token0()]);
+        const [slot0Data, token0Addr] = await Promise.all([
+            pool.slot0(),
+            pool.token0()
+        ]);
         const isUsdcToken0 = token0Addr.toLowerCase() === CONFIG.USDC.toLowerCase();
         const price = sqrtToPrice(slot0Data.sqrtPriceX96.toString(), isUsdcToken0);
         if (price <= 0 || !isFinite(price)) throw new Error("CL price invalid: " + price);
@@ -206,48 +217,71 @@
 
     async function getAeroPriceAMM(provider) {
         const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_AMM_ABI, provider);
-        const [token0Addr, reserves] = await Promise.all([pool.token0(), pool.getReserves()]);
+        const [token0Addr, reserves] = await Promise.all([
+            pool.token0(),
+            pool.getReserves()
+        ]);
         const r0 = BigInt(reserves[0].toString());
         const r1 = BigInt(reserves[1].toString());
         if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves are zero");
         const isUsdcToken0 = token0Addr.toLowerCase() === CONFIG.USDC.toLowerCase();
-        if (isUsdcToken0) { return Number(r0 * (10n ** 12n) / r1); }
-        else              { return Number(r1 * (10n ** 12n) / r0); }
+        if (isUsdcToken0) {
+            return Number(r0 * (10n ** 12n) / r1);
+        } else {
+            return Number(r1 * (10n ** 12n) / r0);
+        }
     }
 
     async function getAeroPriceOneRpc(provider, verbose) {
         if (detectedAeroPoolType === "CL" || detectedAeroPoolType === null) {
             try {
                 const price = await getAeroPriceCL(provider);
-                if (detectedAeroPoolType !== "CL") { detectedAeroPoolType = "CL"; log("AERO_POOL: Detected as Slipstream (CL) pool", "success"); }
+                if (detectedAeroPoolType !== "CL") {
+                    detectedAeroPoolType = "CL";
+                    log("AERO_POOL: Detected as Slipstream (CL) pool", "success");
+                }
                 return price;
             } catch (clErr) {
-                if (verbose) log("AERO_POOL: CL slot0() failed (" + String(clErr.message || clErr).slice(0, 70) + "), trying AMM...", "info");
+                if (verbose) {
+                    log("AERO_POOL: CL slot0() failed (" + String(clErr.message || clErr).slice(0, 70) + "), trying AMM...", "info");
+                }
             }
         }
+
         if (detectedAeroPoolType === "AMM" || detectedAeroPoolType === null) {
             try {
                 const price = await getAeroPriceAMM(provider);
-                if (detectedAeroPoolType !== "AMM") { detectedAeroPoolType = "AMM"; log("AERO_POOL: Detected as legacy AMM pool", "success"); }
+                if (detectedAeroPoolType !== "AMM") {
+                    detectedAeroPoolType = "AMM";
+                    log("AERO_POOL: Detected as legacy AMM pool (uint256 reserves)", "success");
+                }
                 return price;
             } catch (ammErr) {
-                if (verbose) log("AERO_POOL: AMM getReserves() also failed (" + String(ammErr.message || ammErr).slice(0, 70) + ")", "error");
+                if (verbose) {
+                    log("AERO_POOL: AMM getReserves() also failed (" + String(ammErr.message || ammErr).slice(0, 70) + ")", "error");
+                }
             }
         }
+
         return null;
     }
 
     async function getAeroPrice(primaryProvider) {
         const primaryPrice = await getAeroPriceOneRpc(primaryProvider, false);
         if (primaryPrice !== null) return primaryPrice;
+
         for (let i = 1; i < CONFIG.RPCs.length; i++) {
             const rpcIdx = (currentRpc + i) % CONFIG.RPCs.length;
             try {
                 const altProvider = new ethers.JsonRpcProvider(CONFIG.RPCs[rpcIdx]);
                 const altPrice = await getAeroPriceOneRpc(altProvider, false);
-                if (altPrice !== null) { log(`AERO_POOL: Got price via fallback RPC ${rpcIdx + 1}/${CONFIG.RPCs.length}`, "info"); return altPrice; }
+                if (altPrice !== null) {
+                    log(`AERO_POOL: Got price via fallback RPC ${rpcIdx + 1}/${CONFIG.RPCs.length}`, "info");
+                    return altPrice;
+                }
             } catch (_) {}
         }
+
         await getAeroPriceOneRpc(primaryProvider, true);
         detectedAeroPoolType = null;
         return null;
@@ -256,7 +290,8 @@
     async function fetchBaseFeeGwei(provider) {
         try {
             const block = await provider.getBlock("latest");
-            if (block?.baseFeePerGas) lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
+            if (block?.baseFeePerGas)
+                lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
         } catch (_) {}
         return lastBaseFeeGwei;
     }
@@ -269,14 +304,27 @@
         for (let attempt = 0; attempt < 3; attempt++) {
             const chainId = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
             if (chainId === BASE_CHAIN_ID) return true;
+
             if (attempt === 0) {
                 log(`WRONG_NETWORK: chainId=${chainId} — switching to Base...`, "error");
                 try {
-                    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: BASE_CHAIN_ID_HEX }] });
+                    await window.ethereum.request({
+                        method: "wallet_switchEthereumChain",
+                        params: [{ chainId: BASE_CHAIN_ID_HEX }],
+                    });
                 } catch (e) {
                     if (e.code === 4902) {
                         try {
-                            await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: BASE_CHAIN_ID_HEX, chainName: "Base Mainnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
+                            await window.ethereum.request({
+                                method: "wallet_addEthereumChain",
+                                params: [{
+                                    chainId:           BASE_CHAIN_ID_HEX,
+                                    chainName:         "Base Mainnet",
+                                    nativeCurrency:    { name: "ETH", symbol: "ETH", decimals: 18 },
+                                    rpcUrls:           ["https://mainnet.base.org"],
+                                    blockExplorerUrls: ["https://basescan.org"],
+                                }],
+                            });
                         } catch (_) { log("ERR: Cannot add Base to MetaMask. Switch manually.", "error"); return false; }
                     }
                 }
@@ -284,7 +332,10 @@
             await new Promise(r => setTimeout(r, 800));
         }
         const final = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
-        if (final !== BASE_CHAIN_ID) { log(`ERR: Still on chainId=${final}. Switch to Base manually.`, "error"); return false; }
+        if (final !== BASE_CHAIN_ID) {
+            log(`ERR: Still on chainId=${final}. Switch to Base manually in MetaMask.`, "error");
+            return false;
+        }
         return true;
     }
 
@@ -296,52 +347,79 @@
             el.textContent = chainId === BASE_CHAIN_ID ? "BASE MAINNET ✓" : `WRONG CHAIN (${chainId}) ✗`;
             el.className   = chainId === BASE_CHAIN_ID ? "ok" : "";
             const accs = await window.ethereum.request({ method: "eth_accounts" });
-            if (accs.length > 0) document.getElementById("wallet-addr").textContent = accs[0].slice(0,6) + "..." + accs[0].slice(-4);
+            if (accs.length > 0)
+                document.getElementById("wallet-addr").textContent = accs[0].slice(0,6) + "..." + accs[0].slice(-4);
         } catch (_) {}
     }
 
     async function strike(direction, netProfit) {
         if (isStriking) return;
         if (!window.ethereum) { log("ERR: MetaMask not found", "error"); return; }
+
         if (CONFIG.BOT_CONTRACT === "0x0000000000000000000000000000000000000000") {
-            log("ERR: BOT_CONTRACT not set. Deploy BaseArbitrageV3.sol and paste the address into CONFIG.BOT_CONTRACT", "error");
+            log("ERR: BOT_CONTRACT not deployed yet. Deploy your USDC flash loan contract first.", "error");
             return;
         }
+
         isStriking = true;
         log(`▶ STRIKE dir=${direction} NET=$${netProfit.toFixed(4)} LOAN=5000 USDC`, "strike");
         try {
             const onBase = await ensureBaseNetwork();
-            if (!onBase) { log("STRIKE_ABORTED: Switch MetaMask to Base manually and retry.", "error"); isStriking = false; return; }
+            if (!onBase) {
+                log("STRIKE_ABORTED: Switch MetaMask to Base manually and retry.", "error");
+                isStriking = false;
+                return;
+            }
             await updateNetworkBadge();
+
             const bp      = new ethers.BrowserProvider(window.ethereum);
             const network = await bp.getNetwork();
-            if (Number(network.chainId) !== BASE_CHAIN_ID) { log(`ERR: Provider on chainId=${network.chainId} — aborting`, "error"); isStriking = false; return; }
+            if (Number(network.chainId) !== BASE_CHAIN_ID) {
+                log(`ERR: Provider on chainId=${network.chainId} — aborting`, "error");
+                isStriking = false;
+                return;
+            }
+
             const signer     = await bp.getSigner();
             const signerAddr = await signer.getAddress();
             const bot        = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, signer);
             const loanAmount = ethers.parseUnits(String(CONFIG.LOAN_AMOUNT_USDC), CONFIG.USDC_DECIMALS);
+
             log(`SIMULATING strike(${direction}, ${CONFIG.LOAN_AMOUNT_USDC} USDC)...`, "info");
             try {
-                await bot.strike.staticCall(direction, loanAmount, { from: signerAddr, gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
+                await bot.strike.staticCall(direction, loanAmount, {
+                    from:     signerAddr,
+                    gasLimit: CONFIG.ESTIMATED_GAS_UNITS,
+                });
                 log("SIMULATION: PASS — sending real tx", "success");
             } catch (simErr) {
                 const reason = simErr?.reason || simErr?.message || String(simErr);
                 log(`SIMULATION FAILED — tx aborted: ${reason.slice(0, 120)}`, "error");
                 log("CAUSE: Spread too thin, slippage consumed profit, or contract guard rejected.", "error");
-                isStriking = false; return;
+                isStriking = false;
+                return;
             }
+
             log(`SENDING → Base | dir=${direction} loan=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
             const tx = await bot.strike(direction, loanAmount, { gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
             log(`TX: ${tx.hash}`, "success");
             log(`BASESCAN: https://basescan.org/tx/${tx.hash}`, "success");
+
             const receipt = await tx.wait();
-            if (receipt.status === 1) { log(`CONFIRMED ✓ block=${receipt.blockNumber} gas=${receipt.gasUsed}`, "success"); }
-            else { log(`REVERTED → https://basescan.org/tx/${tx.hash}`, "error"); }
+            if (receipt.status === 1) {
+                log(`CONFIRMED ✓ block=${receipt.blockNumber} gas=${receipt.gasUsed}`, "success");
+            } else {
+                log(`REVERTED → https://basescan.org/tx/${tx.hash}`, "error");
+            }
         } catch (e) {
             const msg = e?.message || String(e);
-            log(msg.includes("user rejected") || msg.includes("denied") ? "USER_CANCELLED" : `STRIKE_ERR: ${msg.slice(0, 120)}`,
+            log(msg.includes("user rejected") || msg.includes("denied")
+                ? "USER_CANCELLED"
+                : `STRIKE_ERR: ${msg.slice(0, 120)}`,
                 msg.includes("user rejected") || msg.includes("denied") ? "info" : "error");
-        } finally { isStriking = false; }
+        } finally {
+            isStriking = false;
+        }
     }
 
     async function safeSlot0(contract, label) {
@@ -355,56 +433,79 @@
             try {
                 const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
                 const uniPool  = new ethers.Contract(CONFIG.UNI_POOL, SLOT0_ABI, provider);
+
                 const [uniSlot0, aeroPrice, baseFee] = await Promise.all([
-                    safeSlot0(uniPool, "UNI_005"), getAeroPrice(provider), fetchBaseFeeGwei(provider)
+                    safeSlot0(uniPool, "UNI_005"),
+                    getAeroPrice(provider),
+                    fetchBaseFeeGwei(provider),
                 ]);
+
                 if (!uniSlot0) {
                     log("WARN: Uniswap pool failed — rotating RPC", "error");
                     currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
-                    await new Promise(r => setTimeout(r, 2000)); continue;
+                    await new Promise(r => setTimeout(r, 2000));
+                    continue;
                 }
-                const uniPrice  = sqrtToPrice(uniSlot0.sqrtPriceX96.toString(), false);
-                const rawSpread = aeroPrice !== null ? uniPrice - aeroPrice : 0;
-                const direction = rawSpread >= 0 ? 0 : 1;
-                const absSpread = Math.abs(rawSpread);
+
+                const uniPrice    = sqrtToPrice(uniSlot0.sqrtPriceX96.toString(), false);
+                const rawSpread   = aeroPrice !== null ? uniPrice - aeroPrice : 0;
+
+                const direction   = rawSpread >= 0 ? 0 : 1;
+                const absSpread   = Math.abs(rawSpread);
+
                 const buyPrice  = direction === 0 ? aeroPrice : uniPrice;
                 const sellPrice = direction === 0 ? uniPrice  : aeroPrice;
+
                 const wethBought = buyPrice > 0 ? CONFIG.LOAN_AMOUNT_USDC / buyPrice : 0;
                 const usdcBack   = wethBought * sellPrice;
                 const grossUSD   = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
-                const gasUSD     = estimateGasCostUSD(baseFee, uniPrice);
+
+                const gasUSD      = estimateGasCostUSD(baseFee, uniPrice);
                 const slippageUSD = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT;
-                const netUSD     = grossUSD - gasUSD - slippageUSD;
+                const netUSD      = grossUSD - gasUSD - slippageUSD;
 
                 document.getElementById("price-uni").textContent  = `$${uniPrice.toFixed(2)}`;
                 document.getElementById("price-aero").textContent = aeroPrice !== null ? `$${aeroPrice.toFixed(2)}` : "ERR";
+
                 const dirLabel = direction === 0 ? "BUY_AERO→SELL_UNI" : "BUY_UNI→SELL_AERO";
                 document.getElementById("arb-direction").textContent = dirLabel;
+
                 if (direction === 0) {
-                    document.getElementById("tag-uni").textContent  = "SELL WETH"; document.getElementById("tag-uni").className  = "p-tag sell";
-                    document.getElementById("tag-aero").textContent = "BUY WETH";  document.getElementById("tag-aero").className = "p-tag buy";
+                    document.getElementById("tag-uni").textContent  = "SELL WETH";
+                    document.getElementById("tag-uni").className    = "p-tag sell";
+                    document.getElementById("tag-aero").textContent = "BUY WETH";
+                    document.getElementById("tag-aero").className   = "p-tag buy";
                 } else {
-                    document.getElementById("tag-uni").textContent  = "BUY WETH";  document.getElementById("tag-uni").className  = "p-tag buy";
-                    document.getElementById("tag-aero").textContent = "SELL WETH"; document.getElementById("tag-aero").className = "p-tag sell";
+                    document.getElementById("tag-uni").textContent  = "BUY WETH";
+                    document.getElementById("tag-uni").className    = "p-tag buy";
+                    document.getElementById("tag-aero").textContent = "SELL WETH";
+                    document.getElementById("tag-aero").className   = "p-tag sell";
                 }
+
                 const spreadEl = document.getElementById("spread-display");
                 spreadEl.textContent = `$${absSpread.toFixed(4)}`;
                 spreadEl.className   = `profit-amount ${absSpread > 0 ? "positive" : ""}`;
+
                 document.getElementById("gross-profit").textContent = `$${grossUSD.toFixed(4)}`;
                 document.getElementById("slip-cost").textContent    = `$${slippageUSD.toFixed(4)}`;
                 document.getElementById("gas-cost").textContent     = `$${gasUSD.toFixed(4)}`;
+
                 const netEl = document.getElementById("net-profit");
                 netEl.textContent = `$${netUSD.toFixed(4)}`;
                 netEl.className   = `n-val ${netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "" : netUSD < 0 ? "neg" : "alert"}`;
+
                 tickCount++;
                 document.getElementById("tick-counter").textContent = `TICK: ${tickCount}`;
-                document.getElementById("status-text").textContent  = netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "⚡ STRIKE_READY ⚡" : "SCANNING...";
+                document.getElementById("status-text").textContent  = netUSD >= CONFIG.MIN_NET_PROFIT_USD
+                    ? "⚡ STRIKE_READY ⚡" : "SCANNING...";
+
                 if (netUSD >= CONFIG.MIN_NET_PROFIT_USD && !isStriking) {
                     log(`NET=$${netUSD.toFixed(4)} ≥ $${CONFIG.MIN_NET_PROFIT_USD} — STRIKE dir=${direction} | ${dirLabel} | LOAN=5000 USDC | WETH_QTY=${wethBought.toFixed(6)}`, "strike");
                     strike(direction, netUSD);
                 } else if (tickCount % 20 === 0) {
                     log(`TICK ${tickCount}: UNI=$${uniPrice.toFixed(2)} AERO=${aeroPrice !== null ? "$"+aeroPrice.toFixed(2) : "ERR"} SPREAD=$${absSpread.toFixed(4)} GROSS=$${grossUSD.toFixed(4)} NET=$${netUSD.toFixed(4)} GAS=$${gasUSD.toFixed(4)} WETH_QTY=${wethBought.toFixed(6)}`, "info");
                 }
+
             } catch (e) {
                 log(`RPC_ERR [${currentRpc+1}]: ${String(e.message||e).slice(0,80)}`, "error");
                 currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
@@ -419,10 +520,7 @@
         log("STRATEGY: Borrow 5000 USDC → buy WETH on cheaper DEX → sell WETH on pricier DEX → repay → profit", "info");
         log("PAIR: USDC/WETH | DEX_A: UNISWAP_V3 (0.05%) | DEX_B: AERODROME", "info");
         log(`LOAN: ${CONFIG.LOAN_AMOUNT_USDC} USDC | SLIPPAGE: ${(CONFIG.SLIPPAGE_PCT * 100).toFixed(2)}% | MIN_NET: $${CONFIG.MIN_NET_PROFIT_USD}`, "info");
-        if (CONFIG.BOT_CONTRACT === "0x0000000000000000000000000000000000000000") {
-            log("WARNING: BOT_CONTRACT is placeholder — deploy BaseArbitrageV3.sol and update CONFIG.BOT_CONTRACT", "error");
-            log("The scanner will run (read-only) but strikes will be blocked until contract is set.", "error");
-        }
+
         await updateNetworkBadge();
         if (window.ethereum) {
             window.ethereum.on("chainChanged", updateNetworkBadge);
