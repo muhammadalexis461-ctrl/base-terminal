@@ -102,6 +102,7 @@
             <div class="data-row"><span class="label">LOAN_TOKEN</span><span class="value">USDC</span></div>
             <div class="data-row"><span class="label">LOAN_AMOUNT</span><span class="value">500 USDC</span></div>
             <div class="data-row"><span class="label">FLASH_FEE</span><span class="value">0.00%</span></div>
+            <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.10%</span></div>
             <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">3s</span></div>
             <div class="data-row"><span class="label">NET_MIN_TRIGGER</span><span class="value">$1.00</span></div>
         </div>
@@ -142,14 +143,14 @@
         ],
         UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
         AERO_POOL:           "0xcDAC0d6c6C59727a65F871236188350531885C43",
-        BOT_CONTRACT:        "0xE0289538f9018157E339474B957C5513CB62Dd36",
+        BOT_CONTRACT:        "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
         WETH:                "0x4200000000000000000000000000000000000006",
         USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         LOAN_AMOUNT_USDC:    500,
         USDC_DECIMALS:       6,
         MIN_NET_PROFIT_USD:  1.00,
-        SLIPPAGE_PCT:        0.004,
-        ESTIMATED_GAS_UNITS: 500_000,
+        SLIPPAGE_PCT:        0.001,
+        ESTIMATED_GAS_UNITS: 300_000,
         SCAN_INTERVAL_MS:    3000,
     };
 
@@ -362,18 +363,18 @@
                     currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
                     await new Promise(r => setTimeout(r, 2000)); continue;
                 }
-                const uniPrice  = sqrtToPrice(uniSlot0.sqrtPriceX96.toString(), false);
-                const rawSpread = aeroPrice !== null ? uniPrice - aeroPrice : 0;
-                const direction = rawSpread >= 0 ? 0 : 1;
-                const absSpread = Math.abs(rawSpread);
-                const buyPrice  = direction === 0 ? aeroPrice : uniPrice;
-                const sellPrice = direction === 0 ? uniPrice  : aeroPrice;
-                const wethBought = buyPrice > 0 ? CONFIG.LOAN_AMOUNT_USDC / buyPrice : 0;
-                const usdcBack   = wethBought * sellPrice;
-                const grossUSD   = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
-                const gasUSD     = estimateGasCostUSD(baseFee, uniPrice);
+                const uniPrice    = sqrtToPrice(uniSlot0.sqrtPriceX96.toString(), false);
+                const rawSpread   = aeroPrice !== null ? uniPrice - aeroPrice : 0;
+                const direction   = rawSpread >= 0 ? 0 : 1;
+                const absSpread   = Math.abs(rawSpread);
+                const buyPrice    = direction === 0 ? aeroPrice : uniPrice;
+                const sellPrice   = direction === 0 ? uniPrice  : aeroPrice;
+                const wethBought  = buyPrice > 0 ? CONFIG.LOAN_AMOUNT_USDC / buyPrice : 0;
+                const usdcBack    = wethBought * sellPrice;
+                const grossUSD    = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
+                const gasUSD      = estimateGasCostUSD(baseFee, uniPrice);
                 const slippageUSD = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT;
-                const netUSD     = grossUSD - gasUSD - slippageUSD;
+                const netUSD      = grossUSD - gasUSD - slippageUSD;
 
                 document.getElementById("price-uni").textContent  = `$${uniPrice.toFixed(2)}`;
                 document.getElementById("price-aero").textContent = aeroPrice !== null ? `$${aeroPrice.toFixed(2)}` : "ERR";
@@ -403,7 +404,7 @@
                     log(`NET=$${netUSD.toFixed(4)} ≥ $${CONFIG.MIN_NET_PROFIT_USD} — STRIKE dir=${direction} | ${dirLabel} | LOAN=${CONFIG.LOAN_AMOUNT_USDC} USDC | WETH_QTY=${wethBought.toFixed(6)}`, "strike");
                     strike(direction, netUSD);
                 } else if (tickCount % 20 === 0) {
-                    log(`TICK ${tickCount}: UNI=$${uniPrice.toFixed(2)} AERO=${aeroPrice !== null ? "$"+aeroPrice.toFixed(2) : "ERR"} SPREAD=$${absSpread.toFixed(4)} GROSS=$${grossUSD.toFixed(4)} NET=$${netUSD.toFixed(4)} GAS=$${gasUSD.toFixed(4)} WETH_QTY=${wethBought.toFixed(6)}`, "info");
+                    log(`TICK ${tickCount}: UNI=$${uniPrice.toFixed(2)} AERO=${aeroPrice !== null ? "$"+aeroPrice.toFixed(2) : "ERR"} SPREAD=$${absSpread.toFixed(4)} GROSS=$${grossUSD.toFixed(4)} NET=$${netUSD.toFixed(4)} GAS=$${gasUSD.toFixed(4)}`, "info");
                 }
             } catch (e) {
                 log(`RPC_ERR [${currentRpc+1}]: ${String(e.message||e).slice(0,80)}`, "error");
