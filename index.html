@@ -184,7 +184,8 @@
             "https://base.drpc.org"
         ],
         UNI_POOL:        "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_POOL:       "0xcDAC0d6c6C59727a65F871236188350531885C43",
+        AERO_V1_FACTORY: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
+        AERO_CL_FACTORY: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
         UNI_FACTORY:     "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
         BOT_CONTRACT:    "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
         WETH:            "0x4200000000000000000000000000000000000006",
@@ -213,8 +214,7 @@
     ];
     const AERO_AMM_ABI = [
         "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
-        "function token0() view returns (address)",
-        "function stable() view returns (bool)"
+        "function token0() view returns (address)"
     ];
     const CBETH_SLOT0_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
@@ -223,13 +223,22 @@
     const UNI_FACTORY_ABI = [
         "function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)"
     ];
-    const CBETH_FEE_TIERS = [500, 3000, 100, 10000];
+    const AERO_V1_FACTORY_ABI = [
+        "function getPair(address tokenA, address tokenB, bool stable) external view returns (address pair)"
+    ];
+    const AERO_CL_FACTORY_ABI = [
+        "function getPool(address tokenA, address tokenB, int24 tickSpacing) external view returns (address pool)"
+    ];
+
+    const CBETH_FEE_TIERS    = [500, 3000, 100, 10000];
+    const AERO_CL_TICK_SPACES = [100, 200, 50, 1];
 
     let currentRpc      = 0;
     let tickCount       = 0;
     let isStriking      = false;
     let lastBaseFeeGwei = 0.001;
-    let aeroPoolType    = null;
+    let aeroPoolAddr    = null;
+    let aeroPoolIsCL    = false;
     let cbEthPoolAddr   = null;
     let walletConnected = false;
     let bestDirection   = 0;
@@ -253,6 +262,7 @@
         ]);
     }
 
+    // UNI pool: WETH=token0 (18 dec), USDC=token1 (6 dec) → USDC per WETH = n² × 10¹² / Q96²
     function uniSqrtToUsdcPerWeth(sqrtPriceX96Str) {
         const n   = BigInt(sqrtPriceX96Str);
         const Q96 = 2n ** 96n;
@@ -267,70 +277,86 @@
         return p;
     }
 
-    async function getAeroPriceCL(provider) {
-        const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_CL_ABI, provider);
-        const [s, t0] = await withTimeout(
-            Promise.all([pool.slot0(), pool.token0()]),
-            CONFIG.RPC_TIMEOUT_MS
-        );
-        const n   = BigInt(s.sqrtPriceX96.toString());
-        const Q96 = 2n ** 96n;
-        const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
-        const price = isUsdcToken0
-            ? Number((Q96 * Q96 * 10n ** 12n) / (n * n))
-            : Number((n * n * 10n ** 12n) / (Q96 * Q96));
-        if (!price || !isFinite(price) || price < 100) throw new Error("AERO CL price invalid: " + price);
-        return price;
-    }
+    /* ─── PRICE: USDC per WETH from AERO pool ────────────────────── */
+    // Discover AERO USDC/WETH pool via Aerodrome factories — CL first, then legacy AMM
+    async function resolveAeroPool(provider) {
+        if (aeroPoolAddr) return aeroPoolAddr;
+        const ZERO = "0x0000000000000000000000000000000000000000";
 
-    async function getAeroPriceAMM(provider) {
-        const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_AMM_ABI, provider);
-        const [t0, res] = await withTimeout(
-            Promise.all([pool.token0(), pool.getReserves()]),
-            CONFIG.RPC_TIMEOUT_MS
-        );
-        const r0 = BigInt(res[0].toString());
-        const r1 = BigInt(res[1].toString());
-        if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves zero");
-        const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
-        const price = isUsdcToken0
-            ? Number(r0 * 10n ** 12n / r1)
-            : Number(r1 * 10n ** 12n / r0);
-        if (!price || !isFinite(price) || price < 100) throw new Error("AERO AMM price invalid: " + price);
-        return price;
+        // 1. Try Aerodrome Slipstream CL factory
+        const clFactory = new ethers.Contract(CONFIG.AERO_CL_FACTORY, AERO_CL_FACTORY_ABI, provider);
+        for (const ts of AERO_CL_TICK_SPACES) {
+            try {
+                const addr = await withTimeout(clFactory.getPool(CONFIG.USDC, CONFIG.WETH, ts), CONFIG.RPC_TIMEOUT_MS);
+                if (addr && addr.toLowerCase() !== ZERO) {
+                    aeroPoolAddr = addr; aeroPoolIsCL = true;
+                    log(`AERO: CL pool found ${addr} (tickSpacing=${ts})`, "success");
+                    return addr;
+                }
+            } catch (_) {}
+        }
+
+        // 2. Try Aerodrome v1 AMM factory — volatile then stable
+        const v1Factory = new ethers.Contract(CONFIG.AERO_V1_FACTORY, AERO_V1_FACTORY_ABI, provider);
+        for (const stable of [false, true]) {
+            try {
+                const addr = await withTimeout(v1Factory.getPair(CONFIG.USDC, CONFIG.WETH, stable), CONFIG.RPC_TIMEOUT_MS);
+                if (addr && addr.toLowerCase() !== ZERO) {
+                    aeroPoolAddr = addr; aeroPoolIsCL = false;
+                    log(`AERO: v1 ${stable ? "stable" : "volatile"} AMM found ${addr}`, "success");
+                    return addr;
+                }
+            } catch (_) {}
+        }
+
+        log("AERO: USDC/WETH pool NOT found in any Aerodrome factory", "error");
+        return null;
     }
 
     async function getAeroPrice(provider) {
-        if (aeroPoolType !== "AMM") {
-            try {
-                const p = await getAeroPriceCL(provider);
-                if (aeroPoolType !== "CL") { aeroPoolType = "CL"; log("AERO: Slipstream CL pool detected", "success"); }
-                return p;
-            } catch (e) {
-                if (aeroPoolType === "CL") { log("AERO CL failed: " + String(e.message).slice(0, 60), "error"); aeroPoolType = null; }
-            }
-        }
         try {
-            const p = await getAeroPriceAMM(provider);
-            if (aeroPoolType !== "AMM") { aeroPoolType = "AMM"; log("AERO: Legacy AMM pool detected", "success"); }
-            return p;
+            const poolAddr = await resolveAeroPool(provider);
+            if (!poolAddr) return null;
+
+            if (aeroPoolIsCL) {
+                const pool = new ethers.Contract(poolAddr, AERO_CL_ABI, provider);
+                const [s, t0] = await withTimeout(Promise.all([pool.slot0(), pool.token0()]), CONFIG.RPC_TIMEOUT_MS);
+                const n   = BigInt(s.sqrtPriceX96.toString());
+                const Q96 = 2n ** 96n;
+                const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+                const price = isUsdcToken0
+                    ? Number((Q96 * Q96 * 10n ** 12n) / (n * n))
+                    : Number((n * n * 10n ** 12n) / (Q96 * Q96));
+                if (!price || !isFinite(price) || price < 100) throw new Error("CL price invalid: " + price);
+                return price;
+            } else {
+                const pool = new ethers.Contract(poolAddr, AERO_AMM_ABI, provider);
+                const [t0, res] = await withTimeout(Promise.all([pool.token0(), pool.getReserves()]), CONFIG.RPC_TIMEOUT_MS);
+                const r0 = BigInt(res[0].toString());
+                const r1 = BigInt(res[1].toString());
+                if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves zero");
+                const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+                const price = isUsdcToken0
+                    ? Number(r0 * 10n ** 12n / r1)
+                    : Number(r1 * 10n ** 12n / r0);
+                if (!price || !isFinite(price) || price < 100) throw new Error("AMM price invalid: " + price);
+                return price;
+            }
         } catch (e) {
-            log("AERO AMM failed: " + String(e.message).slice(0, 60), "error");
-            aeroPoolType = null;
+            aeroPoolAddr = null;
+            log("AERO price failed: " + String(e.message).slice(0, 80), "error");
             return null;
         }
     }
 
+    /* ─── PRICE: cbETH / WETH ratio ──────────────────────────────── */
     async function resolveCbEthPool(provider) {
         if (cbEthPoolAddr) return cbEthPoolAddr;
         const ZERO    = "0x0000000000000000000000000000000000000000";
         const factory = new ethers.Contract(CONFIG.UNI_FACTORY, UNI_FACTORY_ABI, provider);
         for (const fee of CBETH_FEE_TIERS) {
             try {
-                const addr = await withTimeout(
-                    factory.getPool(CONFIG.CBETH, CONFIG.WETH, fee),
-                    CONFIG.RPC_TIMEOUT_MS
-                );
+                const addr = await withTimeout(factory.getPool(CONFIG.CBETH, CONFIG.WETH, fee), CONFIG.RPC_TIMEOUT_MS);
                 if (addr && addr.toLowerCase() !== ZERO) {
                     cbEthPoolAddr = addr;
                     log(`cbETH/WETH pool: ${addr} (fee=${fee / 10000}%)`, "success");
@@ -342,15 +368,13 @@
         return null;
     }
 
+    // Both tokens 18 decimals → no decimal scaling needed; returns WETH per cbETH (~1.05)
     async function getCbEthPrice(provider) {
         try {
             const poolAddr = await resolveCbEthPool(provider);
             if (!poolAddr) return null;
             const pool = new ethers.Contract(poolAddr, CBETH_SLOT0_ABI, provider);
-            const [s, t0] = await withTimeout(
-                Promise.all([pool.slot0(), pool.token0()]),
-                CONFIG.RPC_TIMEOUT_MS
-            );
+            const [s, t0] = await withTimeout(Promise.all([pool.slot0(), pool.token0()]), CONFIG.RPC_TIMEOUT_MS);
             const n   = BigInt(s.sqrtPriceX96.toString());
             const Q96 = 2n ** 96n;
             const isCbEthToken0 = t0.toLowerCase() === CONFIG.CBETH.toLowerCase();
@@ -381,21 +405,21 @@
 
     function computeDirectional(uniPrice, aeroPrice, gasUSD) {
         if (!uniPrice || !aeroPrice) return null;
-        const direction   = uniPrice >= aeroPrice ? 0 : 1;
-        const buyPrice    = direction === 0 ? aeroPrice : uniPrice;
-        const sellPrice   = direction === 0 ? uniPrice  : aeroPrice;
-        const wethBought  = CONFIG.LOAN_AMOUNT_USDC / buyPrice;
-        const usdcBack    = wethBought * sellPrice;
-        const grossUSD    = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
-        const slipUSD     = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT * 2;
-        const netUSD      = grossUSD - gasUSD - slipUSD;
+        const direction  = uniPrice >= aeroPrice ? 0 : 1;
+        const buyPrice   = direction === 0 ? aeroPrice : uniPrice;
+        const sellPrice  = direction === 0 ? uniPrice  : aeroPrice;
+        const wethBought = CONFIG.LOAN_AMOUNT_USDC / buyPrice;
+        const usdcBack   = wethBought * sellPrice;
+        const grossUSD   = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
+        const slipUSD    = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT * 2;
+        const netUSD     = grossUSD - gasUSD - slipUSD;
         return { type: "DIRECTIONAL", direction, grossUSD, slipUSD, netUSD, wethBought };
     }
 
     function computeTriangular(uniPrice, aeroPrice, cbEthWethRatio, gasUSD) {
         if (!uniPrice || !aeroPrice || !cbEthWethRatio) return null;
-        const slip    = CONFIG.SLIPPAGE_PCT;
-        const wethOut = (CONFIG.LOAN_AMOUNT_USDC / uniPrice) * (1 - slip);
+        const slip     = CONFIG.SLIPPAGE_PCT;
+        const wethOut  = (CONFIG.LOAN_AMOUNT_USDC / uniPrice) * (1 - slip);
         const cbEthOut = (wethOut / cbEthWethRatio) * (1 - slip);
         const usdcBack = (cbEthOut * cbEthWethRatio * aeroPrice) * (1 - slip);
         const grossUSD = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
@@ -457,8 +481,7 @@
     async function executeStrike(direction, netProfit, isManual) {
         if (isStriking) { log("STRIKE_SKIP: already in flight", "info"); return; }
         if (!window.ethereum) { log("ERR: no Web3 wallet", "error"); return; }
-        isStriking = true;
-        refreshStrikeBtn();
+        isStriking = true; refreshStrikeBtn();
         const tag = isManual ? "MANUAL" : "AUTO";
         log(`▶ ${tag}_STRIKE dir=${direction} NET=$${netProfit.toFixed(4)} LOAN=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
         try {
@@ -494,8 +517,7 @@
             log(m.includes("user rejected") || m.includes("denied") ? "USER_CANCELLED" : `STRIKE_ERR: ${m.slice(0, 120)}`,
                 m.includes("user rejected") || m.includes("denied") ? "info" : "error");
         } finally {
-            isStriking = false;
-            refreshStrikeBtn();
+            isStriking = false; refreshStrikeBtn();
         }
     }
 
@@ -521,7 +543,7 @@
                 }
 
                 document.getElementById("price-uni").textContent   = `$${uniPrice.toFixed(2)}`;
-                document.getElementById("price-aero").textContent  = aeroPrice  ? `$${aeroPrice.toFixed(2)}`    : "N/A";
+                document.getElementById("price-aero").textContent  = aeroPrice  ? `$${aeroPrice.toFixed(2)}`     : "N/A";
                 document.getElementById("price-cbeth").textContent = cbEthRatio ? `${cbEthRatio.toFixed(5)} WETH` : "N/A";
 
                 const gasUSD    = gasCostUSD(baseFee, uniPrice);
@@ -618,7 +640,7 @@
 
     (async () => {
         log("ARB_BOT V3.0 — BASE MAINNET — TRIANGULAR + DIRECTIONAL", "success");
-        log(`POOLS: UNI(USDC/WETH 0.05%) | AERO(USDC/WETH) | cbETH/WETH via factory`, "info");
+        log(`POOLS: UNI(USDC/WETH 0.05%) | AERO(factory lookup) | cbETH/WETH(factory lookup)`, "info");
         log(`LOAN: ${CONFIG.LOAN_AMOUNT_USDC} USDC | SLIPPAGE: ${(CONFIG.SLIPPAGE_PCT*100).toFixed(2)}%/leg | MIN_NET: $${CONFIG.MIN_NET_PROFIT_USD}`, "info");
         await updateNetworkBadge();
         if (window.ethereum) {
