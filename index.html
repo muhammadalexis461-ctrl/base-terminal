@@ -6,8 +6,13 @@
     <title>ARB_V3 | BASE MAINNET | USDC</title>
     <style>
         :root {
-            --green: #00ff41; --dim-green: #00aa28; --yellow: #ffe600; --red: #ff3c3c;
-            --bg: #050505; --surface: #0a0a0a; --border: #1a2e1a;
+            --green: #00ff41;
+            --dim-green: #00aa28;
+            --yellow: #ffe600;
+            --red: #ff3c3c;
+            --bg: #050505;
+            --surface: #0a0a0a;
+            --border: #1a2e1a;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -18,65 +23,111 @@
         }
         h1 { font-size: 1.1rem; letter-spacing: 0.15em; margin-bottom: 6px; text-shadow: 0 0 8px var(--green); }
         .subtitle { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 20px; }
-        .network-badge { width: 100%; max-width: 720px; text-align: center; font-size: 0.7rem; padding: 6px 12px; margin-bottom: 14px; border: 1px solid var(--border); background: var(--surface); }
+        .network-badge {
+            width: 100%; max-width: 720px; text-align: center;
+            font-size: 0.7rem; padding: 6px 12px; margin-bottom: 14px;
+            border: 1px solid var(--border); background: var(--surface);
+        }
+        #network-status { color: var(--red); font-weight: bold; }
         #network-status.ok { color: var(--green); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; margin-bottom: 16px; }
+        .panel { border: 1px solid var(--border); background: var(--surface); padding: 16px; }
+        .panel-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+        .data-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 0.78rem; }
+        .data-row .label { color: #4a7a4a; } .data-row .value { color: var(--green); font-weight: bold; }
         .profit-display { border: 1px solid var(--border); background: var(--surface); padding: 20px; text-align: center; margin-bottom: 16px; width: 100%; max-width: 720px; }
-        .profit-amount { font-size: 3rem; font-weight: bold; color: var(--green); text-shadow: 0 0 16px var(--green); }
+        .profit-label { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 8px; }
+        .profit-amount { font-size: 3rem; font-weight: bold; color: #fff; text-shadow: 0 0 16px var(--green); }
+        .profit-amount.positive { color: var(--green); } .profit-amount.negative { color: var(--red); }
+        .net-profit-row { display: flex; justify-content: center; gap: 24px; margin-top: 10px; font-size: 0.72rem; flex-wrap: wrap; }
+        .net-item { text-align: center; }
+        .net-item .n-label { color: #4a7a4a; display: block; }
+        .net-item .n-val { color: var(--green); font-weight: bold; }
+        .status-bar { width: 100%; max-width: 720px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.65rem; margin-bottom: 16px; }
         .pool-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; width: 100%; max-width: 720px; margin-bottom: 16px; }
         .pool-card { border: 1px solid var(--border); background: var(--surface); padding: 12px; text-align: center; font-size: 0.7rem; }
-        .log-box { width: 100%; max-width: 720px; height: 160px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
-        .log-entry.error { color: var(--red); }
-        .log-entry.success { color: var(--green); }
-        #manual-strike-btn { width: 100%; max-width: 720px; padding: 14px; background: #0a1a0a; color: var(--yellow); border: 2px solid var(--yellow); cursor: pointer; font-family: inherit; font-weight: bold; }
-        #manual-strike-btn:disabled { opacity: 0.3; }
+        .pool-card .p-name { color: var(--dim-green); letter-spacing: 0.1em; margin-bottom: 4px; }
+        .pool-card .p-price { color: var(--green); font-size: 1.1rem; font-weight: bold; }
+        .log-box { width: 100%; max-width: 720px; height: 160px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; text-align: left; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
+        .log-box .log-entry.error { color: var(--red); }
+        #manual-strike-btn {
+            width: 100%; max-width: 720px; padding: 14px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem; letter-spacing: 0.2em; font-weight: bold;
+            background: #0a1a0a; color: var(--yellow);
+            border: 2px solid var(--yellow); cursor: pointer; text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
     <h1>BASE_MAINNET ARB_BOT V3.0</h1>
-    <p class="subtitle">UNI &harr; AERO &harr; cbETH | USDC FLASH LOAN</p>
+    <p class="subtitle">BALANCER_VAULT &middot; TRIANGULAR_ARB &middot; UNI&harr;AERO&harr;cbETH</p>
 
     <div class="network-badge">
-        NETWORK: <span id="network-status">CHECKING...</span> | WALLET: <span id="wallet-addr">NOT_CONNECTED</span>
+        NETWORK: <span id="network-status">CHECKING...</span>
+        &nbsp;|&nbsp; WALLET: <span id="wallet-addr">NOT_CONNECTED</span>
     </div>
 
     <div class="profit-display">
+        <div class="profit-label">BEST NET PROFIT (DIRECTIONAL vs TRIANGULAR)</div>
         <div class="profit-amount" id="spread-display">$0.0000</div>
-        <div id="best-route" style="font-size: 0.8rem; margin-top: 10px;">SCANNING...</div>
+        <div class="net-profit-row">
+            <div class="net-item"><span class="n-label">NET_PROFIT</span><span class="n-val" id="net-profit">$0.0000</span></div>
+        </div>
     </div>
 
     <div class="pool-grid">
-        <div class="pool-card"><div>UNI V3</div><div id="price-uni">...</div></div>
-        <div class="pool-card"><div>AERODROME</div><div id="price-aero">...</div></div>
-        <div class="pool-card"><div>cbETH/WETH</div><div id="price-cbeth">...</div></div>
+        <div class="pool-card">
+            <div class="p-name">UNISWAP V3</div>
+            <div class="p-price" id="price-uni">...</div>
+        </div>
+        <div class="pool-card">
+            <div class="p-name">AERODROME</div>
+            <div class="p-price" id="price-aero">...</div>
+        </div>
+        <div class="pool-card">
+            <div class="p-name">cbETH / WETH</div>
+            <div class="p-price" id="price-cbeth">...</div>
+        </div>
     </div>
 
     <div class="log-box" id="logs"></div>
-    <button id="manual-strike-btn" disabled>CONNECT WALLET TO START</button>
+
+    <button id="manual-strike-btn" disabled>▶ MANUAL STRIKE (CONNECT WALLET)</button>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
     <script>
     "use strict";
 
     const CONFIG = {
-        RPCs: ["https://mainnet.base.org", "https://base.llamarpc.com"],
-        WETH: "0x4200000000000000000000000000000000000006",
-        USDC: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        CBETH: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
-        UNI_POOL: "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_FACTORY: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da", // V1 Factory
-        BOT_CONTRACT: "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
-        LOAN_AMOUNT: 3000
+        RPCs: [
+            "https://mainnet.base.org",
+            "https://base.llamarpc.com",
+            "https://base.drpc.org"
+        ],
+        UNI_POOL:        "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+        AERO_V1_FACTORY: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
+        AERO_CL_FACTORY: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+        UNI_FACTORY:     "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+        WETH:            "0x4200000000000000000000000000000000000006",
+        USDC:            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        CBETH:           "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+        LOAN_AMOUNT_USDC: 3000,
+        SCAN_MS:         3000,
+        RPC_TIMEOUT_MS:  5000
     };
 
     const ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
-        "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint32)",
+        "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
+        "function token0() view returns (address)",
         "function getPair(address,address,bool) view returns (address)",
-        "function token0() view returns (address)"
+        "function getPool(address,address,int24) view returns (address)"
     ];
 
-    let aeroPool = null;
-    let provider = new ethers.JsonRpcProvider(CONFIG.RPCs[0]);
+    let currentRpc = 0;
+    let aeroPoolAddr = null;
+    let aeroPoolIsCL = false;
 
     function log(msg, type = "info") {
         const box = document.getElementById("logs");
@@ -87,60 +138,70 @@
         box.scrollTop = box.scrollHeight;
     }
 
-    // Corrected Price Calculation for Uniswap V3 (USDC/WETH)
-    function decodeUniPrice(sqrtX96) {
-        const n = BigInt(sqrtX96);
-        const Q96 = 2n ** 96n;
-        // (n^2 / Q96^2) * (10^18 / 10^6) -> Price of WETH in USDC
-        return Number((n * n * 10n**12n) / (Q96 * Q96));
-    }
-
-    async function getAeroPool(provider) {
-        if (aeroPool) return aeroPool;
-        const factory = new ethers.Contract(CONFIG.AERO_FACTORY, ["function getPair(address,address,bool) view returns (address)"], provider);
+    async function resolveAeroPool(provider) {
+        if (aeroPoolAddr) return aeroPoolAddr;
+        const ZERO = "0x0000000000000000000000000000000000000000";
         try {
-            // USDC/WETH on Aerodrome is usually Volatile (false)
-            const addr = await factory.getPair(CONFIG.USDC, CONFIG.WETH, false);
-            if (addr !== ethers.ZeroAddress) {
-                aeroPool = addr;
-                log(`Aero Pool Found: ${addr}`, "success");
+            const clFactory = new ethers.Contract(CONFIG.AERO_CL_FACTORY, ABI, provider);
+            // Check most common tick spacing 200
+            const addr = await clFactory.getPool(CONFIG.USDC, CONFIG.WETH, 200);
+            if (addr && addr !== ZERO) {
+                aeroPoolAddr = addr; aeroPoolIsCL = true;
                 return addr;
             }
-        } catch (e) { log("Aero Pool discovery failed", "error"); }
+            const v1Factory = new ethers.Contract(CONFIG.AERO_V1_FACTORY, ABI, provider);
+            const v1Addr = await v1Factory.getPair(CONFIG.USDC, CONFIG.WETH, false);
+            if (v1Addr && v1Addr !== ZERO) {
+                aeroPoolAddr = v1Addr; aeroPoolIsCL = false;
+                return v1Addr;
+            }
+        } catch (e) { log("Aero discovery failed", "error"); }
         return null;
     }
 
-    async function scan() {
+    async function getAeroPrice(provider) {
+        const poolAddr = await resolveAeroPool(provider);
+        if (!poolAddr) return null;
         try {
-            const uniContract = new ethers.Contract(CONFIG.UNI_POOL, ABI, provider);
-            const slot = await uniContract.slot0();
-            const priceUni = decodeUniPrice(slot.sqrtPriceX96);
+            const pool = new ethers.Contract(poolAddr, ABI, provider);
+            if (aeroPoolIsCL) {
+                const [s, t0] = await Promise.all([pool.slot0(), pool.token0()]);
+                const n = BigInt(s.sqrtPriceX96);
+                const Q96 = 2n ** 96n;
+                const isUsdc0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+                return isUsdc0 ? Number((Q96 * Q96 * 10n**12n) / (n * n)) : Number((n * n * 10n**12n) / (Q96 * Q96));
+            } else {
+                const [res, t0] = await Promise.all([pool.getReserves(), pool.token0()]);
+                const isUsdc0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+                return isUsdc0 ? Number(res[0] * 10n**12n / res[1]) : Number(res[1] * 10n**12n / res[0]);
+            }
+        } catch (e) { return null; }
+    }
+
+    async function scan() {
+        const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
+        try {
+            const uniPool = new ethers.Contract(CONFIG.UNI_POOL, ABI, provider);
+            const s = await uniPool.slot0();
+            const n = BigInt(s.sqrtPriceX96);
+            const priceUni = Number((n * n * 10n**12n) / (2n**96n * 2n**96n));
             document.getElementById("price-uni").textContent = `$${priceUni.toFixed(2)}`;
 
-            const poolAddr = await getAeroPool(provider);
-            if (poolAddr) {
-                const aeroContract = new ethers.Contract(poolAddr, ABI, provider);
-                const [res, t0] = await Promise.all([aeroContract.getReserves(), aeroContract.token0()]);
-                const isUsdc0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
-                const priceAero = isUsdc0 ? Number(res[0] * 10n**12n / res[1]) : Number(res[1] * 10n**12n / res[0]);
+            const priceAero = await getAeroPrice(provider);
+            if (priceAero) {
                 document.getElementById("price-aero").textContent = `$${priceAero.toFixed(2)}`;
-                
                 const spread = Math.abs(priceUni - priceAero);
                 document.getElementById("spread-display").textContent = `$${spread.toFixed(4)}`;
             }
         } catch (e) {
-            log(`Scan Error: ${e.message.slice(0, 50)}`, "error");
+            currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
         }
-        setTimeout(scan, 3000);
+        setTimeout(scan, CONFIG.SCAN_MS);
     }
 
     window.onload = () => {
-        log("Bot Initialized. Waiting for scan...", "info");
         scan();
-        if (window.ethereum) {
-            document.getElementById("manual-strike-btn").disabled = false;
-            document.getElementById("manual-strike-btn").textContent = "▶ START MONITORING (WALLET READY)";
-        }
+        if (window.ethereum) document.getElementById("manual-strike-btn").disabled = false;
     };
     </script>
 </body>
