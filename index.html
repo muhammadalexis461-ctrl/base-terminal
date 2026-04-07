@@ -54,6 +54,7 @@
         .pool-card .p-price { color: var(--green); font-size: 1.1rem; font-weight: bold; }
         .pool-card .p-tag { font-size: 0.6rem; margin-top: 4px; }
         .pool-card .p-tag.buy { color: #00cc33; } .pool-card .p-tag.sell { color: var(--yellow); }
+        .pool-card .p-tag.mute { color: #3a5a3a; }
         .log-box { width: 100%; max-width: 720px; height: 160px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; text-align: left; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
         .log-box .log-entry { margin-bottom: 2px; }
         .log-box .log-entry.strike { color: var(--yellow); } .log-box .log-entry.success { color: var(--green); }
@@ -61,36 +62,16 @@
         .footer-note { font-size: 0.6rem; color: #2a4a2a; text-align: center; max-width: 720px; line-height: 1.6; }
         .strike-bar { width: 100%; max-width: 720px; display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
         #manual-strike-btn {
-            flex: 1;
-            padding: 14px 0;
+            flex: 1; padding: 14px 0;
             font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            letter-spacing: 0.2em;
-            font-weight: bold;
-            background: #0a1a0a;
-            color: var(--yellow);
-            border: 2px solid var(--yellow);
-            cursor: pointer;
-            text-transform: uppercase;
+            font-size: 0.85rem; letter-spacing: 0.2em; font-weight: bold;
+            background: #0a1a0a; color: var(--yellow);
+            border: 2px solid var(--yellow); cursor: pointer; text-transform: uppercase;
             transition: background 0.15s, color 0.15s, box-shadow 0.15s;
         }
-        #manual-strike-btn:hover:not(:disabled) {
-            background: var(--yellow);
-            color: #050505;
-            box-shadow: 0 0 18px var(--yellow);
-        }
-        #manual-strike-btn:disabled {
-            opacity: 0.35;
-            cursor: not-allowed;
-            border-color: #4a4a00;
-            color: #4a4a00;
-        }
-        #manual-strike-btn.striking {
-            background: #1a0a0a;
-            color: var(--red);
-            border-color: var(--red);
-            animation: pulse-red 0.7s infinite alternate;
-        }
+        #manual-strike-btn:hover:not(:disabled) { background: var(--yellow); color: #050505; box-shadow: 0 0 18px var(--yellow); }
+        #manual-strike-btn:disabled { opacity: 0.35; cursor: not-allowed; border-color: #4a4a00; color: #4a4a00; }
+        #manual-strike-btn.striking { background: #1a0a0a; color: var(--red); border-color: var(--red); animation: pulse-red 0.7s infinite alternate; }
         @keyframes pulse-red { from { box-shadow: 0 0 4px var(--red); } to { box-shadow: 0 0 20px var(--red); } }
         .tri-box { width: 100%; max-width: 720px; border: 1px solid var(--border); background: var(--surface); padding: 14px 16px; margin-bottom: 16px; font-size: 0.72rem; }
         .tri-box .tri-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
@@ -98,7 +79,7 @@
         .tri-label { color: #4a7a4a; }
         .tri-val { color: var(--green); font-weight: bold; }
         .tri-val.pos { color: var(--green); } .tri-val.neg { color: var(--red); } .tri-val.alert { color: var(--yellow); }
-        .block-timer { font-size: 0.65rem; color: #3a5a3a; }
+        #block-num { font-size: 0.65rem; color: #3a5a3a; }
     </style>
 </head>
 <body>
@@ -111,7 +92,7 @@
     </div>
 
     <div class="profit-display">
-        <div class="profit-label">BEST OPPORTUNITY (DIRECTIONAL + TRIANGULAR) &mdash; USDC/WETH</div>
+        <div class="profit-label">BEST NET PROFIT (DIRECTIONAL vs TRIANGULAR) &mdash; USDC/WETH</div>
         <div class="profit-amount" id="spread-display">$0.0000</div>
         <div class="net-profit-row">
             <div class="net-item"><span class="n-label">GROSS_PROFIT</span><span class="n-val" id="gross-profit">$0.0000</span></div>
@@ -126,27 +107,27 @@
         <div class="pool-card">
             <div class="p-name">UNISWAP V3 (0.05%)</div>
             <div class="p-price" id="price-uni">...</div>
-            <div class="p-tag" id="tag-uni">&mdash;</div>
+            <div class="p-tag mute" id="tag-uni">&mdash;</div>
         </div>
         <div class="pool-card">
             <div class="p-name">AERODROME</div>
             <div class="p-price" id="price-aero">...</div>
-            <div class="p-tag" id="tag-aero">&mdash;</div>
+            <div class="p-tag mute" id="tag-aero">&mdash;</div>
         </div>
         <div class="pool-card">
-            <div class="p-name">UNI V3 cbETH/WETH</div>
+            <div class="p-name">cbETH / WETH (UNI)</div>
             <div class="p-price" id="price-cbeth">...</div>
-            <div class="p-tag" id="tag-cbeth">&mdash;</div>
+            <div class="p-tag mute" id="tag-cbeth">TRI_LEG</div>
         </div>
     </div>
 
     <div class="tri-box">
-        <div class="tri-title">TRIANGULAR_PATH_ANALYSIS &mdash; USDC&rarr;WETH&rarr;cbETH&rarr;USDC</div>
-        <div class="tri-row"><span class="tri-label">LEG_1: USDC&rarr;WETH (UNI)</span><span class="tri-val" id="tri-leg1">&mdash;</span></div>
-        <div class="tri-row"><span class="tri-label">LEG_2: WETH&rarr;cbETH (cbETH_POOL)</span><span class="tri-val" id="tri-leg2">&mdash;</span></div>
-        <div class="tri-row"><span class="tri-label">LEG_3: cbETH&rarr;USDC (AERO)</span><span class="tri-val" id="tri-leg3">&mdash;</span></div>
+        <div class="tri-title">TRIANGULAR_PATH &mdash; USDC &rarr; WETH (UNI) &rarr; cbETH &rarr; USDC (AERO)</div>
+        <div class="tri-row"><span class="tri-label">LEG_1 &nbsp;USDC&rarr;WETH</span><span class="tri-val" id="tri-leg1">&mdash;</span></div>
+        <div class="tri-row"><span class="tri-label">LEG_2 &nbsp;WETH&rarr;cbETH</span><span class="tri-val" id="tri-leg2">&mdash;</span></div>
+        <div class="tri-row"><span class="tri-label">LEG_3 &nbsp;cbETH&rarr;USDC</span><span class="tri-val" id="tri-leg3">&mdash;</span></div>
         <div class="tri-row"><span class="tri-label">TRI_NET_PROFIT</span><span class="tri-val" id="tri-net">&mdash;</span></div>
-        <div class="tri-row"><span class="tri-label">BEST_ROUTE</span><span class="tri-val alert" id="best-route">SCANNING...</span></div>
+        <div class="tri-row"><span class="tri-label">ACTIVE_ROUTE</span><span class="tri-val alert" id="best-route">SCANNING...</span></div>
     </div>
 
     <div class="grid">
@@ -156,8 +137,8 @@
             <div class="data-row"><span class="label">LOAN_TOKEN</span><span class="value">USDC</span></div>
             <div class="data-row"><span class="label">LOAN_AMOUNT</span><span class="value">3,000 USDC</span></div>
             <div class="data-row"><span class="label">FLASH_FEE</span><span class="value">0.00%</span></div>
-            <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.10%</span></div>
-            <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">~2s (BASE BLOCK)</span></div>
+            <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.10%/leg</span></div>
+            <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">3s</span></div>
             <div class="data-row"><span class="label">NET_MIN_TRIGGER</span><span class="value">$1.00</span></div>
         </div>
         <div class="panel">
@@ -175,7 +156,7 @@
         <span id="status-text">INITIALIZING...</span>
         <span id="rpc-indicator">RPC: &mdash;</span>
         <span id="tick-counter">TICK: 0</span>
-        <span class="block-timer" id="block-timer">BLOCK: &mdash;</span>
+        <span id="block-num">BLOCK: &mdash;</span>
     </div>
 
     <div class="strike-bar">
@@ -185,9 +166,9 @@
     <div class="log-box" id="logs"></div>
 
     <div class="footer-note">
-        DIRECTIONAL: Borrow 3000 USDC &rarr; buy WETH on cheaper DEX &rarr; sell WETH on pricier DEX &rarr; repay USDC &rarr; keep profit<br>
-        TRIANGULAR: Borrow 3000 USDC &rarr; WETH (UNI) &rarr; cbETH (cbETH pool) &rarr; USDC (AERO) &rarr; repay &rarr; keep profit<br>
-        Best route selected automatically &middot; Simulation (eth_call) runs first &middot; Strike when NET &ge; $1.00 after gas + slippage
+        DIRECTIONAL: Borrow 3000 USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
+        TRIANGULAR: Borrow 3000 USDC &rarr; WETH (UNI V3) &rarr; cbETH (cbETH/WETH pool) &rarr; USDC (AERO) &rarr; repay &rarr; keep profit<br>
+        Best route auto-selected &middot; eth_call simulation first &middot; Strike fires when NET &ge; $1.00 after gas + slippage
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
@@ -202,60 +183,56 @@
             "https://1rpc.io/base",
             "https://base.drpc.org"
         ],
-        UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_POOL:           "0xcDAC0d6c6C59727a65F871236188350531885C43",
-        CBETH_WETH_POOL:     "0x10648BA41B8565907Cfa1496765fA4D95390aa0",
-        BOT_CONTRACT:        "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
-        WETH:                "0x4200000000000000000000000000000000000006",
-        USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        CBETH:               "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+        UNI_POOL:        "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+        AERO_POOL:       "0xcDAC0d6c6C59727a65F871236188350531885C43",
+        CBETH_POOL:      "0x10648BA41B8565907Cfa1496765fA4D95390aa0",
+        BOT_CONTRACT:    "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
+        WETH:            "0x4200000000000000000000000000000000000006",
+        USDC:            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        CBETH:           "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
         LOAN_AMOUNT_USDC:    3000,
         USDC_DECIMALS:       6,
         MIN_NET_PROFIT_USD:  1.00,
         SLIPPAGE_PCT:        0.001,
         ESTIMATED_GAS_UNITS: 450000,
-        BASE_BLOCK_MS:       2000,
+        SCAN_MS:             3000,
+        RPC_TIMEOUT_MS:      5000,
     };
 
     const BASE_CHAIN_ID     = 8453;
     const BASE_CHAIN_ID_HEX = "0x2105";
 
-    const BOT_ABI   = ["function strike(uint8 direction, uint256 amount) external"];
-    const SLOT0_ABI = [
-        "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
-        "function token0() view returns (address)"
+    const BOT_ABI = ["function strike(uint8 direction, uint256 amount) external"];
+
+    const UNI_SLOT0_ABI = [
+        "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"
     ];
     const AERO_CL_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, bool unlocked)",
-        "function token0() view returns (address)",
-        "function token1() view returns (address)"
+        "function token0() view returns (address)"
     ];
     const AERO_AMM_ABI = [
         "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
         "function token0() view returns (address)",
-        "function token1() view returns (address)",
         "function stable() view returns (bool)"
     ];
-    const CBETH_POOL_ABI = [
+    const CBETH_SLOT0_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
         "function token0() view returns (address)"
     ];
 
-    let currentRpc = 0;
-    let tickCount = 0;
-    let isStriking = false;
+    let currentRpc      = 0;
+    let tickCount       = 0;
+    let isStriking      = false;
     let lastBaseFeeGwei = 0.001;
-    let detectedAeroPoolType = null;
+    let aeroPoolType    = null;
     let walletConnected = false;
-    let lastBlockTimestamp = 0;
-    let lastBlockNumber = 0;
-    let bestDirection = 0;
-    let bestNetUSD = 0;
-    let scanActive = false;
+    let bestDirection   = 0;
+    let bestNetUSD      = 0;
 
     function log(msg, type = "info") {
         const box = document.getElementById("logs");
-        const ts  = new Date().toLocaleTimeString('en-GB', { hour12: false });
+        const ts  = new Date().toLocaleTimeString("en-GB", { hour12: false });
         const div = document.createElement("div");
         div.className   = `log-entry ${type}`;
         div.textContent = `[${ts}] ${msg}`;
@@ -264,115 +241,117 @@
         box.scrollTop = box.scrollHeight;
     }
 
-    function sqrtToPrice(sqrtPriceX96Str, isToken0Base) {
-        const n = BigInt(sqrtPriceX96Str);
+    function withTimeout(promise, ms) {
+        return Promise.race([
+            promise,
+            new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms))
+        ]);
+    }
+
+    // UNI pool: WETH=token0 (18 dec), USDC=token1 (6 dec)
+    // USDC per WETH = sqrtPriceX96² × 10¹² / 2¹⁹²
+    function uniSqrtToUsdcPerWeth(sqrtPriceX96Str) {
+        const n   = BigInt(sqrtPriceX96Str);
         const Q96 = 2n ** 96n;
-        if (isToken0Base) {
-            return Number((Q96 * Q96 * (10n ** 12n)) / (n * n));
-        } else {
-            return Number((n * n * (10n ** 12n)) / (Q96 * Q96));
-        }
+        return Number((n * n * 10n ** 12n) / (Q96 * Q96));
     }
 
     async function getUniPrice(provider) {
-        const pool = new ethers.Contract(CONFIG.UNI_POOL, SLOT0_ABI, provider);
-        const [slot0Data, token0] = await Promise.all([pool.slot0(), pool.token0()]);
-        const isWethToken0 = token0.toLowerCase() === CONFIG.WETH.toLowerCase();
-        return sqrtToPrice(slot0Data.sqrtPriceX96.toString(), !isWethToken0);
+        const pool = new ethers.Contract(CONFIG.UNI_POOL, UNI_SLOT0_ABI, provider);
+        const s    = await withTimeout(pool.slot0(), CONFIG.RPC_TIMEOUT_MS);
+        const p    = uniSqrtToUsdcPerWeth(s.sqrtPriceX96.toString());
+        if (!p || !isFinite(p) || p < 100) throw new Error("UNI price out of range: " + p);
+        return p;
     }
 
     async function getAeroPriceCL(provider) {
         const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_CL_ABI, provider);
-        const [slot0Data, token0Addr] = await Promise.all([pool.slot0(), pool.token0()]);
-        const isUsdcToken0 = token0Addr.toLowerCase() === CONFIG.USDC.toLowerCase();
-        const price = sqrtToPrice(slot0Data.sqrtPriceX96.toString(), isUsdcToken0);
-        if (price <= 0 || !isFinite(price)) throw new Error("CL price invalid: " + price);
+        const [s, t0] = await withTimeout(
+            Promise.all([pool.slot0(), pool.token0()]),
+            CONFIG.RPC_TIMEOUT_MS
+        );
+        const n   = BigInt(s.sqrtPriceX96.toString());
+        const Q96 = 2n ** 96n;
+        const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+        const price = isUsdcToken0
+            ? Number((Q96 * Q96 * 10n ** 12n) / (n * n))
+            : Number((n * n * 10n ** 12n) / (Q96 * Q96));
+        if (!price || !isFinite(price) || price < 100) throw new Error("AERO CL price invalid: " + price);
         return price;
     }
 
     async function getAeroPriceAMM(provider) {
         const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_AMM_ABI, provider);
-        const [token0Addr, reserves] = await Promise.all([pool.token0(), pool.getReserves()]);
-        const r0 = BigInt(reserves[0].toString());
-        const r1 = BigInt(reserves[1].toString());
-        if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves are zero");
-        const isUsdcToken0 = token0Addr.toLowerCase() === CONFIG.USDC.toLowerCase();
-        if (isUsdcToken0) { return Number(r0 * (10n ** 12n) / r1); }
-        else              { return Number(r1 * (10n ** 12n) / r0); }
+        const [t0, res] = await withTimeout(
+            Promise.all([pool.token0(), pool.getReserves()]),
+            CONFIG.RPC_TIMEOUT_MS
+        );
+        const r0 = BigInt(res[0].toString());
+        const r1 = BigInt(res[1].toString());
+        if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves zero");
+        const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+        const price = isUsdcToken0
+            ? Number(r0 * 10n ** 12n / r1)
+            : Number(r1 * 10n ** 12n / r0);
+        if (!price || !isFinite(price) || price < 100) throw new Error("AERO AMM price invalid: " + price);
+        return price;
     }
 
-    async function getAeroPriceOneRpc(provider, verbose) {
-        if (detectedAeroPoolType === "CL" || detectedAeroPoolType === null) {
+    async function getAeroPrice(provider) {
+        if (aeroPoolType !== "AMM") {
             try {
-                const price = await getAeroPriceCL(provider);
-                if (detectedAeroPoolType !== "CL") { detectedAeroPoolType = "CL"; log("AERO_POOL: Slipstream (CL) detected", "success"); }
-                return price;
-            } catch (clErr) {
-                if (verbose) log("AERO_POOL: CL slot0() failed (" + String(clErr.message || clErr).slice(0, 70) + "), trying AMM...", "info");
+                const p = await getAeroPriceCL(provider);
+                if (aeroPoolType !== "CL") { aeroPoolType = "CL"; log("AERO: Slipstream CL pool detected", "success"); }
+                return p;
+            } catch (e) {
+                if (aeroPoolType === "CL") { log("AERO CL failed: " + String(e.message).slice(0, 60), "error"); aeroPoolType = null; }
             }
         }
-        if (detectedAeroPoolType === "AMM" || detectedAeroPoolType === null) {
-            try {
-                const price = await getAeroPriceAMM(provider);
-                if (detectedAeroPoolType !== "AMM") { detectedAeroPoolType = "AMM"; log("AERO_POOL: legacy AMM detected", "success"); }
-                return price;
-            } catch (ammErr) {
-                if (verbose) log("AERO_POOL: AMM getReserves() also failed (" + String(ammErr.message || ammErr).slice(0, 70) + ")", "error");
-            }
-        }
-        return null;
-    }
-
-    async function getAeroPrice(primaryProvider) {
-        const primaryPrice = await getAeroPriceOneRpc(primaryProvider, false);
-        if (primaryPrice !== null) return primaryPrice;
-        for (let i = 1; i < CONFIG.RPCs.length; i++) {
-            const rpcIdx = (currentRpc + i) % CONFIG.RPCs.length;
-            try {
-                const altProvider = new ethers.JsonRpcProvider(CONFIG.RPCs[rpcIdx]);
-                const altPrice = await getAeroPriceOneRpc(altProvider, false);
-                if (altPrice !== null) {
-                    log(`AERO_POOL: price via fallback RPC ${rpcIdx + 1}`, "info");
-                    return altPrice;
-                }
-            } catch (_) {}
-        }
-        await getAeroPriceOneRpc(primaryProvider, true);
-        detectedAeroPoolType = null;
-        return null;
-    }
-
-    async function getCbEthWethPrice(provider) {
         try {
-            const pool = new ethers.Contract(CONFIG.CBETH_WETH_POOL, CBETH_POOL_ABI, provider);
-            const [slot0Data, token0] = await Promise.all([pool.slot0(), pool.token0()]);
-            const isCbEthToken0 = token0.toLowerCase() === CONFIG.CBETH.toLowerCase();
-            const rawPrice = sqrtToPrice(slot0Data.sqrtPriceX96.toString(), isCbEthToken0);
-            if (rawPrice <= 0 || !isFinite(rawPrice)) return null;
-            return rawPrice;
+            const p = await getAeroPriceAMM(provider);
+            if (aeroPoolType !== "AMM") { aeroPoolType = "AMM"; log("AERO: Legacy AMM pool detected", "success"); }
+            return p;
+        } catch (e) {
+            log("AERO AMM failed: " + String(e.message).slice(0, 60), "error");
+            aeroPoolType = null;
+            return null;
+        }
+    }
+
+    // cbETH/WETH — both 18 decimals, returns WETH per cbETH (~1.05)
+    async function getCbEthPrice(provider) {
+        try {
+            const pool = new ethers.Contract(CONFIG.CBETH_POOL, CBETH_SLOT0_ABI, provider);
+            const [s, t0] = await withTimeout(
+                Promise.all([pool.slot0(), pool.token0()]),
+                CONFIG.RPC_TIMEOUT_MS
+            );
+            const n   = BigInt(s.sqrtPriceX96.toString());
+            const Q96 = 2n ** 96n;
+            const isCbEthToken0 = t0.toLowerCase() === CONFIG.CBETH.toLowerCase();
+            // No decimal adjustment — both tokens are 18 decimals
+            const ratio = isCbEthToken0
+                ? Number((n * n * 10n ** 18n) / (Q96 * Q96)) / 1e18   // WETH per cbETH
+                : Number((Q96 * Q96 * 10n ** 18n) / (n * n)) / 1e18;  // inverse
+            if (!isFinite(ratio) || ratio < 0.9 || ratio > 2.0) return null;
+            return ratio;
         } catch (_) {
             return null;
         }
     }
 
-    async function fetchBaseFeeGwei(provider) {
+    async function fetchBaseFee(provider) {
         try {
-            const block = await provider.getBlock("latest");
+            const block = await withTimeout(provider.getBlock("latest"), CONFIG.RPC_TIMEOUT_MS);
             if (block) {
-                if (block.baseFeePerGas) {
-                    lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
-                }
-                if (block.timestamp && block.number) {
-                    lastBlockTimestamp = block.timestamp;
-                    lastBlockNumber    = block.number;
-                    document.getElementById("block-timer").textContent = `BLOCK: ${block.number}`;
-                }
+                if (block.baseFeePerGas) lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
+                if (block.number) document.getElementById("block-num").textContent = `BLOCK: ${block.number}`;
             }
         } catch (_) {}
         return lastBaseFeeGwei;
     }
 
-    function estimateGasCostUSD(baseFeeGwei, ethPriceUSD) {
+    function gasCostUSD(baseFeeGwei, ethPriceUSD) {
         return (CONFIG.ESTIMATED_GAS_UNITS * baseFeeGwei * 1.25 / 1e9) * ethPriceUSD;
     }
 
@@ -381,187 +360,262 @@
         const direction   = uniPrice >= aeroPrice ? 0 : 1;
         const buyPrice    = direction === 0 ? aeroPrice : uniPrice;
         const sellPrice   = direction === 0 ? uniPrice  : aeroPrice;
-        const wethBought  = buyPrice > 0 ? CONFIG.LOAN_AMOUNT_USDC / buyPrice : 0;
+        const wethBought  = CONFIG.LOAN_AMOUNT_USDC / buyPrice;
         const usdcBack    = wethBought * sellPrice;
         const grossUSD    = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
-        const slippageUSD = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT * 2;
-        const netUSD      = grossUSD - gasUSD - slippageUSD;
-        return { direction, grossUSD, slippageUSD, netUSD, wethBought, buyPrice, sellPrice };
+        const slipUSD     = CONFIG.LOAN_AMOUNT_USDC * CONFIG.SLIPPAGE_PCT * 2;
+        const netUSD      = grossUSD - gasUSD - slipUSD;
+        return { type: "DIRECTIONAL", direction, grossUSD, slipUSD, netUSD, wethBought };
     }
 
-    function computeTriangular(uniPrice, cbEthWethPrice, aeroPrice, gasUSD) {
-        if (!uniPrice || !cbEthWethPrice || !aeroPrice) return null;
-        const slippagePerLeg = CONFIG.SLIPPAGE_PCT;
-        const totalSlippage  = CONFIG.LOAN_AMOUNT_USDC * slippagePerLeg * 3;
-        const wethFromUsdc  = (CONFIG.LOAN_AMOUNT_USDC / uniPrice) * (1 - slippagePerLeg);
-        const cbEthFromWeth = (wethFromUsdc / cbEthWethPrice) * (1 - slippagePerLeg);
-        const usdcFromCbEth = (cbEthFromWeth * aeroPrice) * (1 - slippagePerLeg);
-        const grossUSD = usdcFromCbEth - CONFIG.LOAN_AMOUNT_USDC;
-        const netUSD   = grossUSD - gasUSD - totalSlippage;
-        return { direction: 2, grossUSD, slippageUSD: totalSlippage, netUSD, wethFromUsdc, cbEthFromWeth, usdcFromCbEth };
+    function computeTriangular(uniPrice, aeroPrice, cbEthWethRatio, gasUSD) {
+        if (!uniPrice || !aeroPrice || !cbEthWethRatio) return null;
+        const slip    = CONFIG.SLIPPAGE_PCT;
+        const wethOut = (CONFIG.LOAN_AMOUNT_USDC / uniPrice) * (1 - slip);
+        const cbEthOut = (wethOut / cbEthWethRatio) * (1 - slip);
+        const usdcBack = (cbEthOut * cbEthWethRatio * aeroPrice) * (1 - slip);
+        const grossUSD = usdcBack - CONFIG.LOAN_AMOUNT_USDC;
+        const slipUSD  = CONFIG.LOAN_AMOUNT_USDC * slip * 3;
+        const netUSD   = grossUSD - gasUSD - slipUSD;
+        return { type: "TRIANGULAR", direction: 2, grossUSD, slipUSD, netUSD, wethOut, cbEthOut, usdcBack };
     }
 
     async function ensureBaseNetwork() {
-        for (let attempt = 0; attempt < 3; attempt++) {
-            const chainId = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
-            if (chainId === BASE_CHAIN_ID) return true;
-            if (attempt === 0) {
-                log(`WRONG_NETWORK: chainId=${chainId} — switching to Base...`, "error");
+        for (let i = 0; i < 3; i++) {
+            const cid = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
+            if (cid === BASE_CHAIN_ID) return true;
+            if (i === 0) {
                 try {
                     await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: BASE_CHAIN_ID_HEX }] });
                 } catch (e) {
                     if (e.code === 4902) {
                         try {
-                            await window.ethereum.request({
-                                method: "wallet_addEthereumChain",
-                                params: [{ chainId: BASE_CHAIN_ID_HEX, chainName: "Base Mainnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }]
-                            });
-                        } catch (_) { log("ERR: Cannot add Base to MetaMask. Switch manually.", "error"); return false; }
+                            await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: BASE_CHAIN_ID_HEX, chainName: "Base Mainnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
+                        } catch (_) { return false; }
                     }
                 }
             }
             await new Promise(r => setTimeout(r, 800));
         }
-        const final = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
-        if (final !== BASE_CHAIN_ID) { log(`ERR: Still on chainId=${final}. Switch to Base manually.`, "error"); return false; }
-        return true;
+        return parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16) === BASE_CHAIN_ID;
     }
 
     async function updateNetworkBadge() {
         if (!window.ethereum) return;
         try {
-            const chainId = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
-            const el = document.getElementById("network-status");
-            el.textContent = chainId === BASE_CHAIN_ID ? "BASE MAINNET ✓" : `WRONG CHAIN (${chainId}) ✗`;
-            el.className   = chainId === BASE_CHAIN_ID ? "ok" : "";
+            const cid = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
+            const el  = document.getElementById("network-status");
+            el.textContent = cid === BASE_CHAIN_ID ? "BASE MAINNET ✓" : `WRONG CHAIN (${cid}) ✗`;
+            el.className   = cid === BASE_CHAIN_ID ? "ok" : "";
             const accs = await window.ethereum.request({ method: "eth_accounts" });
             if (accs.length > 0) {
                 document.getElementById("wallet-addr").textContent = accs[0].slice(0, 6) + "..." + accs[0].slice(-4);
                 walletConnected = true;
-                updateStrikeButton();
             }
         } catch (_) {}
     }
 
-    function updateStrikeButton() {
+    function refreshStrikeBtn() {
         const btn = document.getElementById("manual-strike-btn");
         if (!walletConnected) {
-            btn.disabled    = true;
-            btn.textContent = "▶ MANUAL STRIKE (CONNECT WALLET)";
-            return;
+            btn.disabled = true; btn.className = "";
+            btn.textContent = "▶ MANUAL STRIKE (CONNECT WALLET)"; return;
         }
         if (isStriking) {
-            btn.disabled = true;
-            btn.classList.add("striking");
+            btn.disabled = true; btn.className = "striking";
             btn.textContent = "⚡ STRIKING IN PROGRESS...";
         } else {
-            btn.disabled = false;
-            btn.classList.remove("striking");
-            btn.textContent = `▶ MANUAL STRIKE (DIR=${bestDirection} / NET=$${bestNetUSD.toFixed(4)})`;
+            btn.disabled = false; btn.className = "";
+            btn.textContent = `▶ MANUAL STRIKE  DIR=${bestDirection}  NET=$${bestNetUSD.toFixed(4)}`;
         }
     }
 
     async function executeStrike(direction, netProfit, isManual) {
-        if (isStriking) { log("STRIKE_SKIP: already striking", "info"); return; }
-        if (!window.ethereum) { log("ERR: MetaMask not found", "error"); return; }
-        if (!CONFIG.BOT_CONTRACT || CONFIG.BOT_CONTRACT === "0x0000000000000000000000000000000000000000") {
-            log("ERR: BOT_CONTRACT not set.", "error"); return;
-        }
+        if (isStriking) { log("STRIKE_SKIP: already in flight", "info"); return; }
+        if (!window.ethereum) { log("ERR: no Web3 wallet", "error"); return; }
         isStriking = true;
-        updateStrikeButton();
-        const modeTag = isManual ? "MANUAL" : "AUTO";
-        log(`▶ ${modeTag}_STRIKE dir=${direction} NET=$${netProfit.toFixed(4)} LOAN=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
+        refreshStrikeBtn();
+        const tag = isManual ? "MANUAL" : "AUTO";
+        log(`▶ ${tag}_STRIKE dir=${direction} NET=$${netProfit.toFixed(4)} LOAN=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
         try {
             const onBase = await ensureBaseNetwork();
-            if (!onBase) {
-                log("STRIKE_ABORTED: Switch MetaMask to Base manually.", "error");
-                isStriking = false; updateStrikeButton(); return;
-            }
+            if (!onBase) { log("ABORTED: not on Base. Switch manually.", "error"); return; }
             await updateNetworkBadge();
-            const bp      = new ethers.BrowserProvider(window.ethereum);
-            const network = await bp.getNetwork();
-            if (Number(network.chainId) !== BASE_CHAIN_ID) {
-                log(`ERR: Provider on chainId=${network.chainId} — aborting`, "error");
-                isStriking = false; updateStrikeButton(); return;
-            }
-            const signer     = await bp.getSigner();
-            const signerAddr = await signer.getAddress();
-            const bot        = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, signer);
-            const loanAmount = ethers.parseUnits(String(CONFIG.LOAN_AMOUNT_USDC), CONFIG.USDC_DECIMALS);
-            const strikeDir  = direction > 1 ? 1 : direction;
-            log(`SIMULATING strike(${strikeDir}, ${CONFIG.LOAN_AMOUNT_USDC} USDC)...`, "info");
+            const bp  = new ethers.BrowserProvider(window.ethereum);
+            const net = await bp.getNetwork();
+            if (Number(net.chainId) !== BASE_CHAIN_ID) { log(`ERR: provider chainId=${net.chainId}`, "error"); return; }
+            const signer = await bp.getSigner();
+            const addr   = await signer.getAddress();
+            const bot    = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, signer);
+            const amount = ethers.parseUnits(String(CONFIG.LOAN_AMOUNT_USDC), CONFIG.USDC_DECIMALS);
+            const dir    = direction > 1 ? 1 : direction;
+            log(`SIMULATING strike(${dir}, ${CONFIG.LOAN_AMOUNT_USDC} USDC)...`, "info");
             try {
-                await bot.strike.staticCall(strikeDir, loanAmount, { from: signerAddr, gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
+                await bot.strike.staticCall(dir, amount, { from: addr, gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
                 log("SIMULATION: PASS — sending real tx", "success");
             } catch (simErr) {
-                const reason = simErr?.reason || simErr?.message || String(simErr);
-                log(`SIMULATION FAILED — tx aborted: ${reason.slice(0, 120)}`, "error");
-                log("CAUSE: Spread too thin, slippage consumed profit, or contract guard rejected.", "error");
-                isStriking = false; updateStrikeButton(); return;
+                const r = simErr?.reason || simErr?.message || String(simErr);
+                log(`SIMULATION FAILED: ${r.slice(0, 120)}`, "error");
+                log("Spread too thin, guard rejected, or wrong direction.", "error");
+                return;
             }
-            log(`SENDING → Base | dir=${strikeDir} loan=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
-            const tx = await bot.strike(strikeDir, loanAmount, { gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
+            const tx = await bot.strike(dir, amount, { gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
             log(`TX: ${tx.hash}`, "success");
             log(`BASESCAN: https://basescan.org/tx/${tx.hash}`, "success");
             const receipt = await tx.wait();
-            if (receipt.status === 1) {
-                log(`CONFIRMED ✓ block=${receipt.blockNumber} gas=${receipt.gasUsed}`, "success");
-            } else {
-                log(`REVERTED → https://basescan.org/tx/${tx.hash}`, "error");
-            }
+            if (receipt.status === 1) log(`CONFIRMED ✓ block=${receipt.blockNumber} gas=${receipt.gasUsed}`, "success");
+            else log(`REVERTED → https://basescan.org/tx/${tx.hash}`, "error");
         } catch (e) {
-            const msg = e?.message || String(e);
-            const isRejected = msg.includes("user rejected") || msg.includes("denied");
-            log(isRejected ? "USER_CANCELLED" : `STRIKE_ERR: ${msg.slice(0, 120)}`, isRejected ? "info" : "error");
+            const m = e?.message || String(e);
+            log(m.includes("user rejected") || m.includes("denied") ? "USER_CANCELLED" : `STRIKE_ERR: ${m.slice(0, 120)}`,
+                m.includes("user rejected") || m.includes("denied") ? "info" : "error");
         } finally {
             isStriking = false;
-            updateStrikeButton();
-        }
-    }
-
-    async function waitForNextBlock(provider) {
-        try {
-            const block = await provider.getBlock("latest");
-            if (!block) { await new Promise(r => setTimeout(r, CONFIG.BASE_BLOCK_MS)); return; }
-            const currentNum = block.number;
-            const deadline   = Date.now() + CONFIG.BASE_BLOCK_MS * 3;
-            while (Date.now() < deadline) {
-                await new Promise(r => setTimeout(r, 400));
-                try {
-                    const latest = await provider.getBlock("latest");
-                    if (latest && latest.number > currentNum) return;
-                } catch (_) {}
-            }
-        } catch (_) {
-            await new Promise(r => setTimeout(r, CONFIG.BASE_BLOCK_MS));
+            refreshStrikeBtn();
         }
     }
 
     async function scan() {
-        scanActive = true;
-        while (scanActive) {
+        log("SCAN_LOOP started", "info");
+        while (true) {
             document.getElementById("rpc-indicator").textContent = `RPC: ${currentRpc + 1}/${CONFIG.RPCs.length}`;
-            let provider;
             try {
-                provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
-                const [uniPrice, aeroPrice, cbEthWethPrice, baseFee] = await Promise.all([
-                    getUniPrice(provider).catch(() => null),
+                const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
+
+                const [uniPrice, aeroPrice, cbEthRatio, baseFee] = await Promise.all([
+                    getUniPrice(provider).catch(e => { log(`UNI_ERR: ${String(e.message).slice(0, 60)}`, "error"); return null; }),
                     getAeroPrice(provider),
-                    getCbEthWethPrice(provider),
-                    fetchBaseFeeGwei(provider)
+                    getCbEthPrice(provider),
+                    fetchBaseFee(provider)
                 ]);
+
                 if (!uniPrice) {
-                    log("WARN: Uniswap price failed — rotating RPC", "error");
+                    log("UNI price unavailable — rotating RPC", "error");
                     currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
-                    await new Promise(r => setTimeout(r, CONFIG.BASE_BLOCK_MS));
+                    await new Promise(r => setTimeout(r, CONFIG.SCAN_MS));
                     continue;
                 }
-                const gasUSD    = estimateGasCostUSD(baseFee, uniPrice);
-                const dirResult = computeDirectional(uniPrice, aeroPrice, gasUSD);
-                const triResult = computeTriangular(uniPrice, cbEthWethPrice, aeroPrice, gasUSD);
-                const dirNet    = dirResult ? dirResult.netUSD : -Infinity;
-                const triNet    = triResult ? triResult.netUSD : -Infinity;
-                let chosen, chosenType;
-                if (triNet > dirNet) { chosen = tr **...**
 
-_This response is too long to display in full._
+                document.getElementById("price-uni").textContent   = `$${uniPrice.toFixed(2)}`;
+                document.getElementById("price-aero").textContent  = aeroPrice  ? `$${aeroPrice.toFixed(2)}`    : "N/A";
+                document.getElementById("price-cbeth").textContent = cbEthRatio ? `${cbEthRatio.toFixed(5)} WETH` : "N/A";
+
+                const gasUSD    = gasCostUSD(baseFee, uniPrice);
+                const dirResult = computeDirectional(uniPrice, aeroPrice, gasUSD);
+                const triResult = computeTriangular(uniPrice, aeroPrice, cbEthRatio, gasUSD);
+
+                const dirNet = dirResult ? dirResult.netUSD : -Infinity;
+                const triNet = triResult ? triResult.netUSD : -Infinity;
+
+                const chosen     = (triNet > dirNet && triResult) ? triResult : (dirResult || triResult);
+                const chosenType = chosen ? chosen.type : "NONE";
+                const displayNet   = chosen ? chosen.netUSD   : 0;
+                const displayGross = chosen ? chosen.grossUSD : 0;
+                const displaySlip  = chosen ? chosen.slipUSD  : 0;
+                const displayDir   = chosen ? chosen.direction : 0;
+
+                bestDirection = displayDir;
+                bestNetUSD    = displayNet;
+
+                if (dirResult) {
+                    if (dirResult.direction === 0) {
+                        document.getElementById("tag-uni").textContent  = "SELL_WETH"; document.getElementById("tag-uni").className  = "p-tag sell";
+                        document.getElementById("tag-aero").textContent = "BUY_WETH";  document.getElementById("tag-aero").className = "p-tag buy";
+                    } else {
+                        document.getElementById("tag-uni").textContent  = "BUY_WETH";  document.getElementById("tag-uni").className  = "p-tag buy";
+                        document.getElementById("tag-aero").textContent = "SELL_WETH"; document.getElementById("tag-aero").className = "p-tag sell";
+                    }
+                }
+                document.getElementById("tag-cbeth").textContent = cbEthRatio ? (triNet >= CONFIG.MIN_NET_PROFIT_USD ? "▶ ACTIVE_LEG" : "MONITORING") : "N/A";
+                document.getElementById("tag-cbeth").className   = cbEthRatio && triNet >= CONFIG.MIN_NET_PROFIT_USD ? "p-tag buy" : "p-tag mute";
+
+                if (triResult) {
+                    document.getElementById("tri-leg1").textContent = `${triResult.wethOut.toFixed(6)} WETH`;
+                    document.getElementById("tri-leg2").textContent = `${triResult.cbEthOut.toFixed(6)} cbETH`;
+                    document.getElementById("tri-leg3").textContent = `$${triResult.usdcBack.toFixed(4)} USDC`;
+                    const tn = document.getElementById("tri-net");
+                    tn.textContent = `$${triResult.netUSD.toFixed(4)}`;
+                    tn.className   = `tri-val ${triResult.netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : triResult.netUSD < 0 ? "neg" : "alert"}`;
+                } else {
+                    document.getElementById("tri-leg1").textContent = "N/A (cbETH pool unavailable)";
+                    document.getElementById("tri-leg2").textContent = "N/A";
+                    document.getElementById("tri-leg3").textContent = "N/A";
+                    document.getElementById("tri-net").textContent  = "N/A";
+                    document.getElementById("tri-net").className    = "tri-val";
+                }
+
+                const brEl = document.getElementById("best-route");
+                brEl.textContent = `${chosenType} (NET=$${displayNet.toFixed(4)})`;
+                brEl.className   = `tri-val ${displayNet >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : "alert"}`;
+
+                const dirLabel = displayDir === 0 ? "BUY_AERO→SELL_UNI" : displayDir === 1 ? "BUY_UNI→SELL_AERO" : "TRIANGULAR_PATH";
+                document.getElementById("arb-direction").textContent = `${chosenType}: ${dirLabel}`;
+
+                const sEl = document.getElementById("spread-display");
+                sEl.textContent = `$${displayNet.toFixed(4)}`;
+                sEl.className   = `profit-amount ${displayNet > 0 ? "positive" : "negative"}`;
+
+                document.getElementById("gross-profit").textContent = `$${displayGross.toFixed(4)}`;
+                document.getElementById("slip-cost").textContent    = `$${displaySlip.toFixed(4)}`;
+                document.getElementById("gas-cost").textContent     = `$${gasUSD.toFixed(4)}`;
+
+                const nEl = document.getElementById("net-profit");
+                nEl.textContent = `$${displayNet.toFixed(4)}`;
+                nEl.className   = `n-val ${displayNet >= CONFIG.MIN_NET_PROFIT_USD ? "" : displayNet < 0 ? "neg" : "alert"}`;
+
+                tickCount++;
+                document.getElementById("tick-counter").textContent = `TICK: ${tickCount}`;
+                const ready = displayNet >= CONFIG.MIN_NET_PROFIT_USD;
+                document.getElementById("status-text").textContent  = ready ? "⚡ STRIKE_READY ⚡" : "SCANNING...";
+                refreshStrikeBtn();
+
+                if (ready && !isStriking) {
+                    log(`AUTO_STRIKE: NET=$${displayNet.toFixed(4)} ≥ $${CONFIG.MIN_NET_PROFIT_USD} | ${chosenType} | dir=${displayDir}`, "strike");
+                    executeStrike(displayDir, displayNet, false);
+                } else if (tickCount % 10 === 0) {
+                    log(`TICK${tickCount} UNI=$${uniPrice.toFixed(2)} AERO=${aeroPrice ? "$"+aeroPrice.toFixed(2) : "N/A"} cbETH=${cbEthRatio ? cbEthRatio.toFixed(5) : "N/A"} DIR=$${dirNet.toFixed(4)} TRI=${triNet === -Infinity ? "N/A" : "$"+triNet.toFixed(4)} BEST=${chosenType}`, "info");
+                }
+
+            } catch (e) {
+                log(`RPC_ERR [${currentRpc + 1}]: ${String(e.message || e).slice(0, 80)}`, "error");
+                currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
+                log(`→ ROTATING to RPC ${currentRpc + 1}`, "info");
+            }
+
+            await new Promise(r => setTimeout(r, CONFIG.SCAN_MS));
+        }
+    }
+
+    document.getElementById("manual-strike-btn").addEventListener("click", async () => {
+        if (isStriking || !walletConnected) return;
+        log(`MANUAL_STRIKE: dir=${bestDirection} NET=$${bestNetUSD.toFixed(4)}`, "strike");
+        await executeStrike(bestDirection, bestNetUSD, true);
+    });
+
+    (async () => {
+        log("ARB_BOT V3.0 — BASE MAINNET — TRIANGULAR + DIRECTIONAL", "success");
+        log(`POOLS: UNI(USDC/WETH 0.05%) | AERO(USDC/WETH) | cbETH/WETH`, "info");
+        log(`LOAN: ${CONFIG.LOAN_AMOUNT_USDC} USDC | SLIPPAGE: ${(CONFIG.SLIPPAGE_PCT*100).toFixed(2)}%/leg | MIN_NET: $${CONFIG.MIN_NET_PROFIT_USD}`, "info");
+        await updateNetworkBadge();
+        if (window.ethereum) {
+            window.ethereum.on("chainChanged",    () => updateNetworkBadge());
+            window.ethereum.on("accountsChanged", (accs) => { walletConnected = accs.length > 0; updateNetworkBadge(); refreshStrikeBtn(); });
+            try {
+                const accs = await window.ethereum.request({ method: "eth_requestAccounts" });
+                if (accs.length > 0) {
+                    walletConnected = true;
+                    await updateNetworkBadge();
+                    log(`WALLET: ${accs[0].slice(0,6)}...${accs[0].slice(-4)} connected`, "success");
+                }
+            } catch (_) {
+                log("WALLET: not connected — prices scanning live (strike disabled)", "info");
+            }
+        } else {
+            log("WARN: No MetaMask — manual strike disabled, prices scanning live", "info");
+        }
+        refreshStrikeBtn();
+        scan();
+    })();
+    </script>
+</body>
+</html>
