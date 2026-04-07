@@ -177,11 +177,11 @@
 
     const CONFIG = {
         RPCs: [
+            "https://base.drpc.org",
             "https://mainnet.base.org",
-            "https://base.llamarpc.com",
             "https://base-rpc.publicnode.com",
+            "https://base.llamarpc.com",
             "https://1rpc.io/base",
-            "https://base.drpc.org"
         ],
         UNI_POOL:        "0xd0b53D9277642d899DF5C87A3966A349A798F224",
         AERO_V1_FACTORY: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
@@ -198,7 +198,7 @@
         ESTIMATED_GAS_UNITS: 450000,
         SCAN_MS:             3000,
         RPC_TIMEOUT_MS:      5000,
-        ETH_PRICE_USD:       2500, // ← Fixed estimate for gas cost (override with CoinGecko if needed)
+        ETH_PRICE_USD:       2500,
     };
 
     const BASE_CHAIN_ID     = 8453;
@@ -211,15 +211,18 @@
     ];
     const AERO_CL_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, bool unlocked)",
-        "function token0() view returns (address)"
+        "function token0() view returns (address)",
+        "function token1() view returns (address)"
     ];
     const AERO_AMM_ABI = [
         "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
-        "function token0() view returns (address)"
+        "function token0() view returns (address)",
+        "function token1() view returns (address)"
     ];
     const CBETH_SLOT0_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
-        "function token0() view returns (address)"
+        "function token0() view returns (address)",
+        "function token1() view returns (address)"
     ];
     const UNI_FACTORY_ABI = [
         "function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)"
@@ -244,7 +247,7 @@
     let walletConnected = false;
     let bestDirection   = 0;
     let bestNetUSD      = 0;
-    let lastRpcUsed     = -1; // ← Track which RPC last worked for pools
+    let lastRpcUsed     = -1;
 
     function log(msg, type = "info") {
         const box = document.getElementById("logs");
@@ -264,6 +267,26 @@
         ]);
     }
 
+    // ← NEW: Defensive contract call validation
+    async function validateContractCall(contract, method, args, timeout) {
+        try {
+            const result = await withTimeout(contract[method](...args), timeout);
+            return { success: true, data: result };
+        } catch (e) {
+            const errMsg = String(e.message || e);
+            if (errMsg.includes("missing revert data")) {
+                return { success: false, error: "Contract call reverted (no reason data)" };
+            }
+            if (errMsg.includes("CALL_EXCEPTION")) {
+                return { success: false, error: "Call exception: likely wrong ABI or contract state" };
+            }
+            if (errMsg.includes("timeout")) {
+                return { success: false, error: "RPC timeout" };
+            }
+            return { success: false, error: errMsg.slice(0, 100) };
+        }
+    }
+
     function uniSqrtToUsdcPerWeth(sqrtPriceX96Str) {
         const n   = BigInt(sqrtPriceX96Str);
         const Q96 = 2n ** 96n;
@@ -278,9 +301,8 @@
         return p;
     }
 
-    /* ─── RESET POOLS WHEN RPC CHANGES ─────────────────── */
+    // ← IMPROVED: Reset pools when RPC changes
     async function resolveAeroPool(provider, rpcIndex) {
-        // ← FIX: Reset cache if switching RPCs
         if (lastRpcUsed !== rpcIndex) {
             aeroPoolAddr = null;
             aeroPoolIsCL = false;
@@ -294,7 +316,8 @@
             try {
                 const addr = await withTimeout(clFactory.getPool(CONFIG.USDC, CONFIG.WETH, ts), CONFIG.RPC_TIMEOUT_MS);
                 if (addr && addr.toLowerCase() !== ZERO) {
-                    aeroPoolAddr = addr; aeroPoolIsCL = true;
+                    aeroPoolAddr = addr; 
+                    aeroPoolIsCL = true;
                     lastRpcUsed = rpcIndex;
                     log(`AERO: CL pool found ${addr} (tickSpacing=${ts})`, "success");
                     return addr;
@@ -307,7 +330,8 @@
             try {
                 const addr = await withTimeout(v1Factory.getPair(CONFIG.USDC, CONFIG.WETH, stable), CONFIG.RPC_TIMEOUT_MS);
                 if (addr && addr.toLowerCase() !== ZERO) {
-                    aeroPoolAddr = addr; aeroPoolIsCL = false;
+                    aeroPoolAddr = addr; 
+                    aeroPoolIsCL = false;
                     lastRpcUsed = rpcIndex;
                     log(`AERO: v1 ${stable ? "stable" : "volatile"} AMM found ${addr}`, "success");
                     return addr;
@@ -319,6 +343,7 @@
         return null;
     }
 
+    // ← IMPROVED: Better error handling with validateContractCall
     async function getAeroPrice(provider, rpcIndex) {
         try {
             const poolAddr = await resolveAeroPool(provider, rpcIndex);
@@ -326,36 +351,88 @@
 
             if (aeroPoolIsCL) {
                 const pool = new ethers.Contract(poolAddr, AERO_CL_ABI, provider);
-                const [s, t0] = await withTimeout(Promise.all([pool.slot0(), pool.token0()]), CONFIG.RPC_TIMEOUT_MS);
+                
+                const slot0Result = await validateContractCall(pool, "slot0", [], CONFIG.RPC_TIMEOUT_MS);
+                if (!slot0Result.success) {
+                    log(`AERO slot0() failed: ${slot0Result.error}`, "error");
+                    aeroPoolAddr = null;
+                    return null;
+                }
+                
+                const token0Result = await validateContractCall(pool, "token0", [], CONFIG.RPC_TIMEOUT_MS);
+                if (!token0Result.success) {
+                    log(`AERO token0() failed: ${token0Result.error}`, "error");
+                    aeroPoolAddr = null;
+                    return null;
+                }
+
+                const s = slot0Result.data;
+                const t0 = token0Result.data;
+                
                 const n   = BigInt(s.sqrtPriceX96.toString());
                 const Q96 = 2n ** 96n;
                 const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
+                
                 const price = isUsdcToken0
                     ? Number((Q96 * Q96 * 10n ** 12n) / (n * n))
                     : Number((n * n * 10n ** 12n) / (Q96 * Q96));
-                if (!price || !isFinite(price) || price < 100) throw new Error("CL price invalid: " + price);
+                
+                if (!price || !isFinite(price) || price < 100 || price > 10000) {
+                    log(`AERO price out of range: $${price}`, "error");
+                    return null;
+                }
+                
+                log(`AERO CL price: $${price.toFixed(2)}`, "success");
                 return price;
+
             } else {
                 const pool = new ethers.Contract(poolAddr, AERO_AMM_ABI, provider);
-                const [t0, res] = await withTimeout(Promise.all([pool.token0(), pool.getReserves()]), CONFIG.RPC_TIMEOUT_MS);
+                
+                const token0Result = await validateContractCall(pool, "token0", [], CONFIG.RPC_TIMEOUT_MS);
+                if (!token0Result.success) {
+                    log(`AERO AMM token0() failed: ${token0Result.error}`, "error");
+                    aeroPoolAddr = null;
+                    return null;
+                }
+                
+                const reservesResult = await validateContractCall(pool, "getReserves", [], CONFIG.RPC_TIMEOUT_MS);
+                if (!reservesResult.success) {
+                    log(`AERO AMM getReserves() failed: ${reservesResult.error}`, "error");
+                    aeroPoolAddr = null;
+                    return null;
+                }
+
+                const t0 = token0Result.data;
+                const res = reservesResult.data;
+                
                 const r0 = BigInt(res[0].toString());
                 const r1 = BigInt(res[1].toString());
-                if (r0 === 0n || r1 === 0n) throw new Error("AMM reserves zero");
+                
+                if (r0 === 0n || r1 === 0n) {
+                    log("AERO AMM reserves are zero", "error");
+                    return null;
+                }
+                
                 const isUsdcToken0 = t0.toLowerCase() === CONFIG.USDC.toLowerCase();
                 const price = isUsdcToken0
                     ? Number(r0 * 10n ** 12n / r1)
                     : Number(r1 * 10n ** 12n / r0);
-                if (!price || !isFinite(price) || price < 100) throw new Error("AMM price invalid: " + price);
+                
+                if (!price || !isFinite(price) || price < 100 || price > 10000) {
+                    log(`AERO AMM price out of range: $${price}`, "error");
+                    return null;
+                }
+                
+                log(`AERO AMM price: $${price.toFixed(2)}`, "success");
                 return price;
             }
         } catch (e) {
             aeroPoolAddr = null;
-            log("AERO price failed: " + String(e.message).slice(0, 80), "error");
+            log("AERO price exception: " + String(e.message).slice(0, 80), "error");
             return null;
         }
     }
 
-    /* ─── PRICE: cbETH / WETH ratio ──────────────────────────────── */
     async function resolveCbEthPool(provider, rpcIndex) {
         if (cbEthPoolAddr) return cbEthPoolAddr;
         const ZERO    = "0x0000000000000000000000000000000000000000";
@@ -370,26 +447,54 @@
                 }
             } catch (_) {}
         }
-        log("cbETH/WETH pool NOT found in Uniswap factory — triangular N/A", "error");
+        log("cbETH/WETH pool NOT found in Uniswap factory", "error");
         return null;
     }
 
+    // ← IMPROVED: Better error handling
     async function getCbEthPrice(provider, rpcIndex) {
         try {
             const poolAddr = await resolveCbEthPool(provider, rpcIndex);
             if (!poolAddr) return null;
+
             const pool = new ethers.Contract(poolAddr, CBETH_SLOT0_ABI, provider);
-            const [s, t0] = await withTimeout(Promise.all([pool.slot0(), pool.token0()]), CONFIG.RPC_TIMEOUT_MS);
+            
+            const slot0Result = await validateContractCall(pool, "slot0", [], CONFIG.RPC_TIMEOUT_MS);
+            if (!slot0Result.success) {
+                log(`cbETH slot0() failed: ${slot0Result.error}`, "error");
+                cbEthPoolAddr = null;
+                return null;
+            }
+            
+            const token0Result = await validateContractCall(pool, "token0", [], CONFIG.RPC_TIMEOUT_MS);
+            if (!token0Result.success) {
+                log(`cbETH token0() failed: ${token0Result.error}`, "error");
+                cbEthPoolAddr = null;
+                return null;
+            }
+
+            const s = slot0Result.data;
+            const t0 = token0Result.data;
+            
             const n   = BigInt(s.sqrtPriceX96.toString());
             const Q96 = 2n ** 96n;
             const isCbEthToken0 = t0.toLowerCase() === CONFIG.CBETH.toLowerCase();
+            
             const ratio = isCbEthToken0
                 ? Number((n * n * 10n ** 18n) / (Q96 * Q96)) / 1e18
                 : Number((Q96 * Q96 * 10n ** 18n) / (n * n)) / 1e18;
-            if (!isFinite(ratio) || ratio < 0.9 || ratio > 2.0) return null;
+            
+            if (!isFinite(ratio) || ratio < 0.9 || ratio > 2.0) {
+                log(`cbETH ratio out of range: ${ratio}`, "error");
+                return null;
+            }
+            
+            log(`cbETH/WETH ratio: ${ratio.toFixed(5)}`, "success");
             return ratio;
+
         } catch (e) {
-            log("cbETH price failed: " + String(e.message).slice(0, 60), "error");
+            cbEthPoolAddr = null;
+            log("cbETH price exception: " + String(e.message).slice(0, 80), "error");
             return null;
         }
     }
@@ -538,7 +643,6 @@
             try {
                 const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
 
-                // ← FIX: Add .catch() handlers to ALL promises
                 const [uniPrice, aeroPrice, cbEthRatio, baseFee] = await Promise.all([
                     getUniPrice(provider).catch(e => { 
                         log(`UNI_ERR: ${String(e.message).slice(0, 60)}`, "error"); 
@@ -566,7 +670,6 @@
                 document.getElementById("price-aero").textContent  = aeroPrice  ? `$${aeroPrice.toFixed(2)}`     : "N/A";
                 document.getElementById("price-cbeth").textContent = cbEthRatio ? `${cbEthRatio.toFixed(5)} WETH` : "N/A";
 
-                // ← FIX: Use fixed ETH price for now (can be improved with CoinGecko API)
                 const gasUSD    = gasCostUSD(baseFee, CONFIG.ETH_PRICE_USD);
                 const dirResult = computeDirectional(uniPrice, aeroPrice, gasUSD);
                 const triResult = computeTriangular(uniPrice, aeroPrice, cbEthRatio, gasUSD);
@@ -604,7 +707,7 @@
                     tn.textContent = `$${triResult.netUSD.toFixed(4)}`;
                     tn.className   = `tri-val ${triResult.netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : triResult.netUSD < 0 ? "neg" : "alert"}`;
                 } else {
-                    document.getElementById("tri-leg1").textContent = "N/A (cbETH pool unavailable)";
+                    document.getElementById("tri-leg1").textContent = "N/A";
                     document.getElementById("tri-leg2").textContent = "N/A";
                     document.getElementById("tri-leg3").textContent = "N/A";
                     document.getElementById("tri-net").textContent  = "N/A";
