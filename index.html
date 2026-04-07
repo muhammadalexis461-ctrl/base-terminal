@@ -198,6 +198,7 @@
         ESTIMATED_GAS_UNITS: 450000,
         SCAN_MS:             3000,
         RPC_TIMEOUT_MS:      5000,
+        ETH_PRICE_USD:       2500, // ← Fixed estimate for gas cost (override with CoinGecko if needed)
     };
 
     const BASE_CHAIN_ID     = 8453;
@@ -243,6 +244,7 @@
     let walletConnected = false;
     let bestDirection   = 0;
     let bestNetUSD      = 0;
+    let lastRpcUsed     = -1; // ← Track which RPC last worked for pools
 
     function log(msg, type = "info") {
         const box = document.getElementById("logs");
@@ -262,7 +264,6 @@
         ]);
     }
 
-    // UNI pool: WETH=token0 (18 dec), USDC=token1 (6 dec) → USDC per WETH = n² × 10¹² / Q96²
     function uniSqrtToUsdcPerWeth(sqrtPriceX96Str) {
         const n   = BigInt(sqrtPriceX96Str);
         const Q96 = 2n ** 96n;
@@ -277,32 +278,37 @@
         return p;
     }
 
-    /* ─── PRICE: USDC per WETH from AERO pool ────────────────────── */
-    // Discover AERO USDC/WETH pool via Aerodrome factories — CL first, then legacy AMM
-    async function resolveAeroPool(provider) {
+    /* ─── RESET POOLS WHEN RPC CHANGES ─────────────────── */
+    async function resolveAeroPool(provider, rpcIndex) {
+        // ← FIX: Reset cache if switching RPCs
+        if (lastRpcUsed !== rpcIndex) {
+            aeroPoolAddr = null;
+            aeroPoolIsCL = false;
+        }
         if (aeroPoolAddr) return aeroPoolAddr;
+
         const ZERO = "0x0000000000000000000000000000000000000000";
 
-        // 1. Try Aerodrome Slipstream CL factory
         const clFactory = new ethers.Contract(CONFIG.AERO_CL_FACTORY, AERO_CL_FACTORY_ABI, provider);
         for (const ts of AERO_CL_TICK_SPACES) {
             try {
                 const addr = await withTimeout(clFactory.getPool(CONFIG.USDC, CONFIG.WETH, ts), CONFIG.RPC_TIMEOUT_MS);
                 if (addr && addr.toLowerCase() !== ZERO) {
                     aeroPoolAddr = addr; aeroPoolIsCL = true;
+                    lastRpcUsed = rpcIndex;
                     log(`AERO: CL pool found ${addr} (tickSpacing=${ts})`, "success");
                     return addr;
                 }
             } catch (_) {}
         }
 
-        // 2. Try Aerodrome v1 AMM factory — volatile then stable
         const v1Factory = new ethers.Contract(CONFIG.AERO_V1_FACTORY, AERO_V1_FACTORY_ABI, provider);
         for (const stable of [false, true]) {
             try {
                 const addr = await withTimeout(v1Factory.getPair(CONFIG.USDC, CONFIG.WETH, stable), CONFIG.RPC_TIMEOUT_MS);
                 if (addr && addr.toLowerCase() !== ZERO) {
                     aeroPoolAddr = addr; aeroPoolIsCL = false;
+                    lastRpcUsed = rpcIndex;
                     log(`AERO: v1 ${stable ? "stable" : "volatile"} AMM found ${addr}`, "success");
                     return addr;
                 }
@@ -313,9 +319,9 @@
         return null;
     }
 
-    async function getAeroPrice(provider) {
+    async function getAeroPrice(provider, rpcIndex) {
         try {
-            const poolAddr = await resolveAeroPool(provider);
+            const poolAddr = await resolveAeroPool(provider, rpcIndex);
             if (!poolAddr) return null;
 
             if (aeroPoolIsCL) {
@@ -350,7 +356,7 @@
     }
 
     /* ─── PRICE: cbETH / WETH ratio ──────────────────────────────── */
-    async function resolveCbEthPool(provider) {
+    async function resolveCbEthPool(provider, rpcIndex) {
         if (cbEthPoolAddr) return cbEthPoolAddr;
         const ZERO    = "0x0000000000000000000000000000000000000000";
         const factory = new ethers.Contract(CONFIG.UNI_FACTORY, UNI_FACTORY_ABI, provider);
@@ -368,10 +374,9 @@
         return null;
     }
 
-    // Both tokens 18 decimals → no decimal scaling needed; returns WETH per cbETH (~1.05)
-    async function getCbEthPrice(provider) {
+    async function getCbEthPrice(provider, rpcIndex) {
         try {
-            const poolAddr = await resolveCbEthPool(provider);
+            const poolAddr = await resolveCbEthPool(provider, rpcIndex);
             if (!poolAddr) return null;
             const pool = new ethers.Contract(poolAddr, CBETH_SLOT0_ABI, provider);
             const [s, t0] = await withTimeout(Promise.all([pool.slot0(), pool.token0()]), CONFIG.RPC_TIMEOUT_MS);
@@ -383,7 +388,8 @@
                 : Number((Q96 * Q96 * 10n ** 18n) / (n * n)) / 1e18;
             if (!isFinite(ratio) || ratio < 0.9 || ratio > 2.0) return null;
             return ratio;
-        } catch (_) {
+        } catch (e) {
+            log("cbETH price failed: " + String(e.message).slice(0, 60), "error");
             return null;
         }
     }
@@ -395,7 +401,9 @@
                 if (block.baseFeePerGas) lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
                 if (block.number) document.getElementById("block-num").textContent = `BLOCK: ${block.number}`;
             }
-        } catch (_) {}
+        } catch (e) {
+            log("Base fee fetch failed: " + String(e.message).slice(0, 60), "error");
+        }
         return lastBaseFeeGwei;
     }
 
@@ -460,7 +468,9 @@
                 document.getElementById("wallet-addr").textContent = accs[0].slice(0, 6) + "..." + accs[0].slice(-4);
                 walletConnected = true;
             }
-        } catch (_) {}
+        } catch (e) {
+            log("Network badge update failed: " + String(e.message).slice(0, 60), "error");
+        }
     }
 
     function refreshStrikeBtn() {
@@ -528,11 +538,21 @@
             try {
                 const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
 
+                // ← FIX: Add .catch() handlers to ALL promises
                 const [uniPrice, aeroPrice, cbEthRatio, baseFee] = await Promise.all([
-                    getUniPrice(provider).catch(e => { log(`UNI_ERR: ${String(e.message).slice(0, 60)}`, "error"); return null; }),
-                    getAeroPrice(provider),
-                    getCbEthPrice(provider),
-                    fetchBaseFee(provider)
+                    getUniPrice(provider).catch(e => { 
+                        log(`UNI_ERR: ${String(e.message).slice(0, 60)}`, "error"); 
+                        return null; 
+                    }),
+                    getAeroPrice(provider, currentRpc).catch(e => {
+                        log(`AERO_ERR: ${String(e.message).slice(0, 60)}`, "error");
+                        return null;
+                    }),
+                    getCbEthPrice(provider, currentRpc).catch(e => {
+                        log(`cbETH_ERR: ${String(e.message).slice(0, 60)}`, "error");
+                        return null;
+                    }),
+                    fetchBaseFee(provider).catch(() => lastBaseFeeGwei)
                 ]);
 
                 if (!uniPrice) {
@@ -546,7 +566,8 @@
                 document.getElementById("price-aero").textContent  = aeroPrice  ? `$${aeroPrice.toFixed(2)}`     : "N/A";
                 document.getElementById("price-cbeth").textContent = cbEthRatio ? `${cbEthRatio.toFixed(5)} WETH` : "N/A";
 
-                const gasUSD    = gasCostUSD(baseFee, uniPrice);
+                // ← FIX: Use fixed ETH price for now (can be improved with CoinGecko API)
+                const gasUSD    = gasCostUSD(baseFee, CONFIG.ETH_PRICE_USD);
                 const dirResult = computeDirectional(uniPrice, aeroPrice, gasUSD);
                 const triResult = computeTriangular(uniPrice, aeroPrice, cbEthRatio, gasUSD);
 
