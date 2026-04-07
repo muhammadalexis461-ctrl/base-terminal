@@ -13,50 +13,167 @@
             --surface: #0a0a0a;
             --border: #1a2e1a;
         }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            background: var(--bg); color: var(--green);
+            background: var(--bg);
+            color: var(--green);
             font-family: 'Courier New', monospace;
-            display: flex; flex-direction: column; align-items: center;
-            padding: 24px 12px; min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 12px;
+            min-height: 100vh;
         }
-        h1 { font-size: 1.1rem; letter-spacing: 0.15em; margin-bottom: 6px; color: var(--green); text-shadow: 0 0 8px var(--green); }
-        .subtitle { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; margin-bottom: 16px; }
-        .panel { border: 1px solid var(--border); background: var(--surface); padding: 16px; box-shadow: 0 0 12px rgba(0,255,65,0.04); }
-        .panel-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-        .data-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 0.78rem; }
+
+        h1 {
+            font-size: 1.1rem;
+            letter-spacing: 0.15em;
+            margin-bottom: 6px;
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
+        }
+
+        .subtitle {
+            font-size: 0.65rem;
+            color: var(--dim-green);
+            letter-spacing: 0.2em;
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            width: 100%;
+            max-width: 720px;
+            margin-bottom: 16px;
+        }
+
+        .panel {
+            border: 1px solid var(--border);
+            background: var(--surface);
+            padding: 16px;
+            box-shadow: 0 0 12px rgba(0,255,65,0.04);
+        }
+
+        .panel-title {
+            font-size: 0.65rem;
+            color: var(--dim-green);
+            letter-spacing: 0.2em;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 0.78rem;
+        }
+
         .data-row .label { color: #4a7a4a; }
         .data-row .value { color: var(--green); font-weight: bold; }
-        .profit-display { border: 1px solid var(--border); background: var(--surface); padding: 20px; text-align: center; margin-bottom: 16px; width: 100%; max-width: 720px; }
+
+        .profit-display {
+            border: 1px solid var(--border);
+            background: var(--surface);
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+            width: 100%;
+            max-width: 720px;
+        }
+
         .profit-label { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 8px; }
         .profit-amount { font-size: 3rem; font-weight: bold; color: #fff; text-shadow: 0 0 16px var(--green); }
         .profit-amount.positive { color: var(--green); text-shadow: 0 0 20px var(--green); }
         .profit-amount.negative { color: var(--red); text-shadow: 0 0 16px var(--red); }
-        .net-profit-row { display: flex; justify-content: center; gap: 32px; margin-top: 10px; font-size: 0.72rem; }
+
+        .net-profit-row {
+            display: flex;
+            justify-content: center;
+            gap: 32px;
+            margin-top: 10px;
+            font-size: 0.72rem;
+        }
+
         .net-item { text-align: center; }
         .net-item .n-label { color: #4a7a4a; display: block; }
         .net-item .n-val { color: var(--green); font-weight: bold; }
         .net-item .n-val.alert { color: var(--yellow); }
         .net-item .n-val.neg { color: var(--red); }
-        .status-bar { width: 100%; max-width: 720px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.65rem; margin-bottom: 16px; }
+
+        .status-bar {
+            width: 100%;
+            max-width: 720px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            font-size: 0.65rem;
+            margin-bottom: 16px;
+        }
+
         #status-text { color: var(--yellow); letter-spacing: 0.15em; }
         #rpc-indicator { color: var(--dim-green); }
         #tick-counter { color: #3a5a3a; }
-        .log-box { width: 100%; max-width: 720px; height: 140px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; text-align: left; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
+
+        .log-box {
+            width: 100%;
+            max-width: 720px;
+            height: 140px;
+            background: #080808;
+            border: 1px solid var(--border);
+            overflow-y: scroll;
+            font-size: 0.65rem;
+            text-align: left;
+            padding: 10px;
+            color: var(--dim-green);
+            margin-bottom: 16px;
+        }
+
         .log-box .log-entry { margin-bottom: 2px; }
         .log-box .log-entry.strike { color: var(--yellow); }
         .log-box .log-entry.success { color: var(--green); }
         .log-box .log-entry.error { color: var(--red); }
         .log-box .log-entry.info { color: var(--dim-green); }
-        .route-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; width: 100%; max-width: 720px; margin-bottom: 16px; }
-        .route-card { border: 1px solid var(--border); background: var(--surface); padding: 10px; text-align: center; font-size: 0.68rem; }
+
+        .route-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            width: 100%;
+            max-width: 720px;
+            margin-bottom: 16px;
+        }
+
+        .route-card {
+            border: 1px solid var(--border);
+            background: var(--surface);
+            padding: 10px;
+            text-align: center;
+            font-size: 0.68rem;
+        }
+
         .route-card .r-name { color: var(--dim-green); letter-spacing: 0.1em; margin-bottom: 4px; }
         .route-card .r-price { color: var(--green); font-size: 1rem; font-weight: bold; }
         .route-card .r-spread { font-size: 0.6rem; margin-top: 4px; }
         .route-card .r-spread.pos { color: #00cc33; }
         .route-card .r-spread.neg { color: var(--red); }
-        .footer-note { font-size: 0.6rem; color: #2a4a2a; text-align: center; max-width: 720px; line-height: 1.6; }
+
+        .footer-note {
+            font-size: 0.6rem;
+            color: #2a4a2a;
+            text-align: center;
+            max-width: 720px;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -67,10 +184,22 @@
         <div class="profit-label">GROSS_SPREAD (WETH/USDC)</div>
         <div class="profit-amount" id="spread-display">$0.00</div>
         <div class="net-profit-row">
-            <div class="net-item"><span class="n-label">GROSS_PROFIT</span><span class="n-val" id="gross-profit">$0.00</span></div>
-            <div class="net-item"><span class="n-label">EST_GAS_COST</span><span class="n-val alert" id="gas-cost">$0.00</span></div>
-            <div class="net-item"><span class="n-label">NET_PROFIT</span><span class="n-val" id="net-profit">$0.00</span></div>
-            <div class="net-item"><span class="n-label">1INCH_ROUTE</span><span class="n-val" id="best-route">SCANNING...</span></div>
+            <div class="net-item">
+                <span class="n-label">GROSS_PROFIT</span>
+                <span class="n-val" id="gross-profit">$0.00</span>
+            </div>
+            <div class="net-item">
+                <span class="n-label">EST_GAS_COST</span>
+                <span class="n-val alert" id="gas-cost">$0.00</span>
+            </div>
+            <div class="net-item">
+                <span class="n-label">NET_PROFIT</span>
+                <span class="n-val" id="net-profit">$0.00</span>
+            </div>
+            <div class="net-item">
+                <span class="n-label">1INCH_ROUTE</span>
+                <span class="n-val" id="best-route">SCANNING...</span>
+            </div>
         </div>
     </div>
 
@@ -125,6 +254,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+
     <script>
     const CONFIG = {
         RPCs: [
@@ -132,30 +262,35 @@
             "https://base.llamarpc.com",
             "https://base-rpc.publicnode.com"
         ],
-        UNI_POOL_005:       "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        UNI_POOL_03:        "0x6c561B446416E1A00E8E93E221854d6eA4171372",
-        CBTC_WETH_POOL:     "0x70aCDF2Ad0bf2402C957154f944c19Ef4e1cbAE1",
-        BOT_CONTRACT:       "0xE8A82f01D8bD06D0719488DdBe28f5a3b37979BD",
-        ONEINCH_API:        "https://api.1inch.dev/swap/v6.0/8453",
-        ONEINCH_API_KEY:    "",
-        WETH:               "0x4200000000000000000000000000000000000006",
-        USDC:               "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        UNI_POOL_005:    "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+        UNI_POOL_03:     "0x6c561B446416E1A00E8E93E221854d6eA4171372",
+        CBTC_WETH_POOL:  "0x70aCDF2Ad0bf2402C957154f944c19Ef4e1cbAE1",
+        BOT_CONTRACT:    "0xE8A82f01D8bD06D0719488DdBe28f5a3b37979BD",
+        ONEINCH_API:     "https://api.1inch.dev/swap/v6.0/8453",
+        ONEINCH_API_KEY: "",
+        WETH:            "0x4200000000000000000000000000000000000006",
+        USDC:            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         LOAN_AMOUNT_ETH:    5,
         MIN_NET_PROFIT_USD: 1.00,
         ESTIMATED_GAS_UNITS: 800_000,
         SCAN_INTERVAL_MS:   3000,
     };
 
-    const SLOT0_ABI = ["function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"];
-    const BOT_ABI   = ["function strike() external"];
+    const SLOT0_ABI = [
+        "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"
+    ];
+    const BOT_ABI = ["function strike() external"];
 
-    let currentRpc = 0, tickCount = 0, isStriking = false, lastBaseFeeGwei = 0.05;
+    let currentRpc = 0;
+    let tickCount = 0;
+    let isStriking = false;
+    let lastBaseFeeGwei = 0.05;
 
     function log(msg, type = "info") {
         const box = document.getElementById("logs");
         const ts  = new Date().toLocaleTimeString('en-GB', { hour12: false });
         const div = document.createElement("div");
-        div.className   = `log-entry ${type}`;
+        div.className = `log-entry ${type}`;
         div.textContent = `[${ts}] ${msg}`;
         box.appendChild(div);
         while (box.children.length > 200) box.removeChild(box.firstChild);
@@ -177,64 +312,90 @@
     async function fetchBaseFeeGwei(provider) {
         try {
             const block = await provider.getBlock("latest");
-            if (block?.baseFeePerGas)
+            if (block && block.baseFeePerGas) {
                 lastBaseFeeGwei = Number(ethers.formatUnits(block.baseFeePerGas, "gwei"));
+            }
         } catch (_) {}
         return lastBaseFeeGwei;
     }
 
     function estimateGasCostUSD(baseFeeGwei, ethPriceUSD) {
-        return (CONFIG.ESTIMATED_GAS_UNITS * baseFeeGwei * 1.10 / 1e9) * ethPriceUSD;
+        const totalFeeGwei = baseFeeGwei * 1.10;
+        const gasCostETH   = (CONFIG.ESTIMATED_GAS_UNITS * totalFeeGwei) / 1e9;
+        return gasCostETH * ethPriceUSD;
     }
 
     async function fetch1inchQuote(amountInWei) {
         try {
-            const headers = CONFIG.ONEINCH_API_KEY
-                ? { "Authorization": `Bearer ${CONFIG.ONEINCH_API_KEY}` } : {};
-            const url  = `${CONFIG.ONEINCH_API}/quote?src=${CONFIG.WETH}&dst=${CONFIG.USDC}&amount=${amountInWei}&includeProtocols=true`;
+            const headers = {};
+            if (CONFIG.ONEINCH_API_KEY) {
+                headers["Authorization"] = `Bearer ${CONFIG.ONEINCH_API_KEY}`;
+            }
+            const url = `${CONFIG.ONEINCH_API}/quote?` +
+                `src=${CONFIG.WETH}&dst=${CONFIG.USDC}` +
+                `&amount=${amountInWei.toString()}&includeProtocols=true`;
             const resp = await Promise.race([
                 fetch(url, { headers }),
-                new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 4000))
+                new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000))
             ]);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data     = await resp.json();
-            const topProto = data.protocols?.[0]?.[0]?.[0]?.name || "UNKNOWN";
+            if (!resp.ok) throw new Error(`1inch HTTP ${resp.status}`);
+            const data = await resp.json();
+            let topProto = "UNKNOWN";
+            if (data.protocols && data.protocols[0] && data.protocols[0][0]) {
+                topProto = data.protocols[0][0][0]?.name || "UNKNOWN";
+            }
             return { dstAmount: BigInt(data.dstAmount || "0"), topProto };
-        } catch (_) {
+        } catch (e) {
             return { dstAmount: 0n, topProto: "UNAVAIL" };
         }
     }
 
     async function strike(netProfit) {
         if (isStriking) return;
-        if (!window.ethereum) { log("ERR: NO_METAMASK_DETECTED", "error"); return; }
+        if (!window.ethereum) {
+            log("ERR: NO_METAMASK_DETECTED", "error");
+            return;
+        }
         isStriking = true;
         log(`▶ STRIKE_TRIGGERED | NET_PROFIT=$${netProfit.toFixed(2)}`, "strike");
         try {
-            const signer = await (new ethers.BrowserProvider(window.ethereum)).getSigner();
+            const browserProvider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await browserProvider.getSigner();
             const bot    = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, signer);
             log("SENDING_TX → MetaMask popup...", "strike");
-            const tx      = await bot.strike({ gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
+            const tx = await bot.strike({ gasLimit: CONFIG.ESTIMATED_GAS_UNITS });
             log(`TX_SUBMITTED: ${tx.hash.slice(0, 16)}...`, "success");
             const receipt = await tx.wait();
-            log(receipt.status === 1
-                ? `STRIKE_CONFIRMED ✓ block=${receipt.blockNumber}`
-                : "TX_REVERTED — check on-chain",
-                receipt.status === 1 ? "success" : "error");
+            if (receipt.status === 1) {
+                log(`STRIKE_CONFIRMED ✓ block=${receipt.blockNumber}`, "success");
+            } else {
+                log("TX_REVERTED — check on-chain", "error");
+            }
         } catch (e) {
             const msg = e?.message || String(e);
-            log(msg.includes("user rejected")
-                ? "USER_CANCELLED — no tx sent"
-                : `STRIKE_FAILED: ${msg.slice(0, 80)}`,
-                msg.includes("user rejected") ? "info" : "error");
+            if (msg.includes("user rejected")) {
+                log("USER_CANCELLED — no tx sent", "info");
+            } else {
+                log(`STRIKE_FAILED: ${msg.slice(0, 80)}`, "error");
+            }
         } finally {
             isStriking = false;
+        }
+    }
+
+    async function safeSlot0(contract, label) {
+        try {
+            return await contract.slot0();
+        } catch (e) {
+            log(`POOL_ERR [${label}]: ${String(e.message || e).slice(0, 70)}`, "error");
+            return null;
         }
     }
 
     async function scan() {
         while (true) {
             document.getElementById("rpc-indicator").textContent = `RPC: ${currentRpc + 1}/${CONFIG.RPCs.length}`;
+
             try {
                 const provider = new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
                 const pool005  = new ethers.Contract(CONFIG.UNI_POOL_005,   SLOT0_ABI, provider);
@@ -242,15 +403,24 @@
                 const poolBtc  = new ethers.Contract(CONFIG.CBTC_WETH_POOL, SLOT0_ABI, provider);
                 const LOAN_WEI = ethers.parseEther(String(CONFIG.LOAN_AMOUNT_ETH));
 
-                const [s1, s2, s3, baseFee, inch] = await Promise.race([
-                    Promise.all([pool005.slot0(), pool03.slot0(), poolBtc.slot0(),
-                                 fetchBaseFeeGwei(provider), fetch1inchQuote(LOAN_WEI)]),
-                    new Promise((_, r) => setTimeout(() => r(new Error("scan_timeout")), 5000))
+                const [s1, s2, s3, baseFee, inch] = await Promise.all([
+                    safeSlot0(pool005, "UNI_005"),
+                    safeSlot0(pool03,  "UNI_03"),
+                    safeSlot0(poolBtc, "CBTC_WETH"),
+                    fetchBaseFeeGwei(provider),
+                    fetch1inchQuote(LOAN_WEI)
                 ]);
+
+                if (!s1 || !s2) {
+                    log("WARN: Core pool(s) unavailable — rotating RPC", "error");
+                    currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
+                    await new Promise(r => setTimeout(r, 2000));
+                    continue;
+                }
 
                 const price005     = sqrtToPrice(s1.sqrtPriceX96.toString());
                 const price03      = sqrtToPrice(s2.sqrtPriceX96.toString());
-                const priceBtcWeth = sqrtToBtcWethPrice(s3.sqrtPriceX96.toString());
+                const priceBtcWeth = s3 ? sqrtToBtcWethPrice(s3.sqrtPriceX96.toString()) : null;
                 const ethPriceUSD  = (price005 + price03) / 2;
                 const grossSpread  = Math.abs(price03 - price005);
                 const grossUSD     = grossSpread * CONFIG.LOAN_AMOUNT_ETH;
@@ -270,45 +440,65 @@
 
                 document.getElementById("best-route").textContent = inch.topProto;
 
-                updatePoolCard("uni005",  price005,     price005 - price03);
-                updatePoolCard("uni03",   price03,      price03  - price005);
-                updatePoolCard("btcweth", priceBtcWeth, 0, true);
+                updatePoolCard("uni005",  price005, price005 - price03);
+                updatePoolCard("uni03",   price03,  price03  - price005);
+
+                if (priceBtcWeth !== null) {
+                    updatePoolCard("btcweth", priceBtcWeth, 0, true);
+                } else {
+                    document.getElementById("price-btcweth").textContent  = "NO_DATA";
+                    document.getElementById("spread-btcweth").textContent = "";
+                }
 
                 tickCount++;
                 document.getElementById("tick-counter").textContent = `TICK: ${tickCount}`;
                 document.getElementById("status-text").textContent  =
-                    netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "▲ OPPORTUNITY_DETECTED" : "● LIVE_SCANNING";
+                    netUSD >= CONFIG.MIN_NET_PROFIT_USD
+                        ? "▲ OPPORTUNITY_DETECTED"
+                        : "● LIVE_SCANNING";
 
-                log(`SCAN#${tickCount} | 0.05%=$${price005.toFixed(2)} 0.3%=$${price03.toFixed(2)} SPREAD=$${grossSpread.toFixed(4)} GAS=$${gasUSD.toFixed(4)} NET=$${netUSD.toFixed(4)}`);
+                log(
+                    `SCAN#${tickCount} | 0.05%=$${price005.toFixed(2)} 0.3%=$${price03.toFixed(2)} ` +
+                    `SPREAD=$${grossSpread.toFixed(4)} GAS=$${gasUSD.toFixed(4)} NET=$${netUSD.toFixed(4)}`
+                );
 
                 if (netUSD >= CONFIG.MIN_NET_PROFIT_USD && !isStriking) {
                     log(`$$ NET=$${netUSD.toFixed(2)} ≥ $${CONFIG.MIN_NET_PROFIT_USD} → FIRING STRIKE`, "strike");
                     await strike(netUSD);
                 }
+
             } catch (err) {
-                log(`RPC_ERR [rpc${currentRpc + 1}]: ${String(err.message || err).slice(0, 60)}`, "error");
+                const msg = String(err.message || err);
+                log(`RPC_ERR [rpc${currentRpc + 1}]: ${msg.slice(0, 60)}`, "error");
                 currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
                 document.getElementById("status-text").textContent = "RECONNECTING...";
                 await new Promise(r => setTimeout(r, 2000));
                 continue;
             }
+
             await new Promise(r => setTimeout(r, CONFIG.SCAN_INTERVAL_MS));
         }
     }
 
-    function updatePoolCard(id, price, diff, isBtc = false) {
-        document.getElementById(`price-${id}`).textContent =
-            isBtc ? `${price.toFixed(6)} ETH` : `$${price.toFixed(2)}`;
-        const sp = document.getElementById(`spread-${id}`);
-        if (isBtc) { sp.textContent = ""; sp.className = "r-spread"; return; }
-        sp.textContent = (diff >= 0 ? "+" : "") + `$${diff.toFixed(4)}`;
-        sp.className   = "r-spread " + (diff >= 0.01 ? "pos" : diff <= -0.01 ? "neg" : "");
+    function updatePoolCard(id, price, spreadVsOther, isBtc = false) {
+        const priceEl  = document.getElementById(`price-${id}`);
+        const spreadEl = document.getElementById(`spread-${id}`);
+        if (isBtc) {
+            priceEl.textContent  = `${price.toFixed(6)} ETH`;
+            spreadEl.textContent = "";
+            spreadEl.className   = "r-spread";
+        } else {
+            priceEl.textContent  = `$${price.toFixed(2)}`;
+            const diff = spreadVsOther;
+            spreadEl.textContent = (diff >= 0 ? "+" : "") + `$${diff.toFixed(4)}`;
+            spreadEl.className   = "r-spread " + (diff >= 0.01 ? "pos" : diff <= -0.01 ? "neg" : "");
+        }
     }
 
     window.addEventListener("load", () => {
         log("SYSTEM_BOOT | ARB_BOT_V2 ONLINE", "success");
+        log(`CONFIG: LOAN=${CONFIG.LOAN_AMOUNT_ETH} ETH | MIN_NET=$${CONFIG.MIN_NET_PROFIT_USD} | INTERVAL=${CONFIG.SCAN_INTERVAL_MS}ms`);
         log(`BOT_CONTRACT: ${CONFIG.BOT_CONTRACT}`);
-        log(`LOAN=${CONFIG.LOAN_AMOUNT_ETH} ETH | MIN_NET=$${CONFIG.MIN_NET_PROFIT_USD} | SCAN=${CONFIG.SCAN_INTERVAL_MS}ms`);
         scan();
     });
     </script>
