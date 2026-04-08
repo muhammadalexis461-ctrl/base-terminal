@@ -80,6 +80,12 @@
         .arb-val { color: var(--green); font-weight: bold; }
         .arb-val.pos { color: var(--green); } .arb-val.neg { color: var(--red); } .arb-val.alert { color: var(--yellow); }
         #block-num { font-size: 0.65rem; color: #3a5a3a; }
+        .auto-toggle { width: 100%; max-width: 720px; display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 10px 16px; border: 1px solid var(--border); background: var(--surface); font-size: 0.72rem; }
+        .auto-toggle label { color: var(--dim-green); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .auto-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--green); cursor: pointer; }
+        .auto-toggle .auto-status { margin-left: auto; font-weight: bold; }
+        .auto-toggle .auto-status.on { color: var(--green); }
+        .auto-toggle .auto-status.off { color: var(--red); }
     </style>
 </head>
 <body>
@@ -98,6 +104,7 @@
             <div class="net-item"><span class="n-label">EST_GAS_COST</span><span class="n-val alert" id="gas-cost">$0.0000</span></div>
             <div class="net-item"><span class="n-label">NET_PROFIT</span><span class="n-val" id="net-profit">$0.0000</span></div>
             <div class="net-item"><span class="n-label">DIRECTION</span><span class="n-val" id="arb-direction">&mdash;</span></div>
+            <div class="net-item"><span class="n-label">LOAN_SIZE</span><span class="n-val" id="active-loan">&mdash;</span></div>
         </div>
     </div>
     <div class="pool-grid">
@@ -119,6 +126,7 @@
         <div class="arb-row"><span class="arb-label">BUY_PRICE</span><span class="arb-val" id="arb-buy">$0.00</span></div>
         <div class="arb-row"><span class="arb-label">SELL_PRICE</span><span class="arb-val" id="arb-sell">$0.00</span></div>
         <div class="arb-row"><span class="arb-label">NET_PROFIT</span><span class="arb-val" id="arb-net">&mdash;</span></div>
+        <div class="arb-row"><span class="arb-label">ACTIVE_LOAN</span><span class="arb-val" id="arb-loan">&mdash;</span></div>
         <div class="arb-row"><span class="arb-label">STATUS</span><span class="arb-val alert" id="arb-status">SCANNING...</span></div>
     </div>
     <div class="grid">
@@ -126,7 +134,7 @@
             <div class="panel-title">SCAN_CONFIG</div>
             <div class="data-row"><span class="label">LOAN_SOURCE</span><span class="value">BALANCER_V2</span></div>
             <div class="data-row"><span class="label">LOAN_TOKEN</span><span class="value">USDC</span></div>
-            <div class="data-row"><span class="label">LOAN_AMOUNT</span><span class="value">3,000 USDC</span></div>
+            <div class="data-row"><span class="label">MAX_LOAN</span><span class="value">3,000 USDC</span></div>
             <div class="data-row"><span class="label">FLASH_FEE</span><span class="value">0.00%</span></div>
             <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.05%</span></div>
             <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">3s</span></div>
@@ -140,6 +148,7 @@
             <div class="data-row"><span class="label">DEX_B</span><span class="value">AERODROME</span></div>
             <div class="data-row"><span class="label">CONTRACT</span><span class="value">0xF552...8B70</span></div>
             <div class="data-row"><span class="label">CHAIN</span><span class="value">BASE (8453)</span></div>
+            <div class="data-row"><span class="label">ADAPTIVE</span><span class="value">YES (auto-size)</span></div>
         </div>
     </div>
     <div class="status-bar">
@@ -148,20 +157,26 @@
         <span id="tick-counter">TICK: 0</span>
         <span id="block-num">BLOCK: &mdash;</span>
     </div>
+    <div class="auto-toggle">
+        <label>
+            <input type="checkbox" id="auto-strike-toggle" checked />
+            AUTO-STRIKE
+        </label>
+        <span class="auto-status on" id="auto-strike-status">ENABLED</span>
+    </div>
     <div class="strike-bar">
         <button id="manual-strike-btn" disabled>&#9654; MANUAL STRIKE (CONNECT WALLET)</button>
     </div>
     <div class="log-box" id="logs"></div>
     <div class="footer-note">
-        TWO-WAY DIRECTIONAL: Borrow 3000 USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
-        Auto-selects best direction based on real-time price spread &middot; eth_call simulation first &middot; Fires when NET &ge; $1.00 after gas + slippage
+        TWO-WAY DIRECTIONAL: Borrow USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
+        Auto-selects best direction &middot; Adaptive loan sizing (steps down on price impact) &middot; eth_call simulation first &middot; Fires when NET &ge; $1.00 after gas + slippage
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
     <script>
     "use strict";
 
-    // ─── CONFIG ────────────────────────────────────────────────────────────────
     const CONFIG = {
         RPCs: [
             "https://mainnet.base.org",
@@ -170,19 +185,14 @@
             "https://base.llamarpc.com",
             "https://1rpc.io/base",
         ],
-        // Uniswap V3 USDC/WETH 0.05% pool on Base
-        // token0 = WETH (0x4200… < 0x8335…), token1 = USDC
         UNI_POOL:   "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-
-        // Aerodrome vAMM-WETH/USDC pool on Base (hardcoded — verified on-chain)
-        // token0 = WETH (0x4200…), token1 = USDC (0x8335…)
         AERO_POOL:  "0xcDAC0d6c6C59727a65F871236188350531885C43",
-
         BOT_CONTRACT:        "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
         WETH:                "0x4200000000000000000000000000000000000006",
         USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
 
-        LOAN_AMOUNT_USDC:    3000,
+        MAX_LOAN_USDC:       3000,
+        LOAN_STEPS:          [3000, 2000, 1500, 1000, 750, 500, 300, 200, 100],
         USDC_DECIMALS:       6,
         WETH_DECIMALS:       18,
         MIN_NET_PROFIT_USD:  1.00,
@@ -191,12 +201,13 @@
         SCAN_MS:             3000,
         RPC_TIMEOUT_MS:      8000,
         ETH_PRICE_USD:       2500,
+        STRIKE_COOLDOWN_MS:  15000,
+        MAX_SIM_RETRIES:     3,
     };
 
     const BASE_CHAIN_ID     = 8453;
     const BASE_CHAIN_ID_HEX = "0x2105";
 
-    // ─── ABIs ──────────────────────────────────────────────────────────────────
     const BOT_ABI = [
         "function strike(uint8 direction, uint256 amount) external"
     ];
@@ -210,18 +221,20 @@
         "function token0() view returns (address)"
     ];
 
-    // ─── STATE ─────────────────────────────────────────────────────────────────
-    let currentRpc      = 0;
-    let tickCount       = 0;
-    let isStriking      = false;
-    let lastBaseFeeGwei = 0.001;
-    let walletConnected = false;
-    let walletSigner    = null;
-    let bestDirection   = 0;
-    let bestNetUSD      = 0;
-    let aeroToken0      = null;
+    let currentRpc        = 0;
+    let tickCount         = 0;
+    let isStriking        = false;
+    let lastBaseFeeGwei   = 0.001;
+    let walletConnected   = false;
+    let walletSigner      = null;
+    let bestDirection     = 0;
+    let bestNetUSD        = 0;
+    let aeroToken0        = null;
+    let autoStrikeEnabled = true;
+    let lastStrikeTime    = 0;
+    let activeLoanAmount  = CONFIG.MAX_LOAN_USDC;
+    let consecutiveFails  = 0;
 
-    // ─── UTILITIES ─────────────────────────────────────────────────────────────
     function withTimeout(promise, ms) {
         return Promise.race([
             promise,
@@ -238,11 +251,10 @@
     function rotateRpc(reason) {
         currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
         const host = CONFIG.RPCs[currentRpc].replace("https://", "").split("/")[0];
-        log(`RPC rotated (${reason}) → ${host}`, "info");
+        log(`RPC rotated (${reason}) -> ${host}`, "info");
         document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
     }
 
-    // ─── LOGGING ───────────────────────────────────────────────────────────────
     function log(msg, cls = "info") {
         const box = document.getElementById("logs");
         const ts  = new Date().toLocaleTimeString("en-US", { hour12: false });
@@ -253,24 +265,16 @@
         while (box.children.length > 80) box.removeChild(box.lastChild);
     }
 
-    // ─── UNISWAP V3 PRICE ──────────────────────────────────────────────────────
-    // Pool: WETH (token0, 18 dec) / USDC (token1, 6 dec)
-    // sqrtPriceX96 = sqrt(token1/token0 in raw units) * 2^96
-    // price_raw = (sqrtPriceX96 / 2^96)^2  →  USDC_raw per WETH_raw
-    // natural USDC per WETH = price_raw * 10^(18-6) = price_raw * 1e12
     async function getUniPrice(provider) {
         const pool  = new ethers.Contract(CONFIG.UNI_POOL, UNI_SLOT0_ABI, provider);
         const slot0 = await withTimeout(pool.slot0(), CONFIG.RPC_TIMEOUT_MS);
         const sqrtPriceX96 = BigInt(slot0[0].toString());
         const Q96           = BigInt(2) ** BigInt(96);
         const sqrtFloat     = Number(sqrtPriceX96) / Number(Q96);
-        const priceRaw      = sqrtFloat * sqrtFloat; // USDC_raw / WETH_raw (~2.5e-9 at $2500)
-        return priceRaw * 1e12;                      // multiply by 10^(18-6)
+        const priceRaw      = sqrtFloat * sqrtFloat;
+        return priceRaw * 1e12;
     }
 
-    // ─── AERODROME PRICE ───────────────────────────────────────────────────────
-    // Pool vAMM-WETH/USDC: token0=WETH (18 dec), token1=USDC (6 dec)
-    // USDC per WETH = (reserve1 / 1e6) / (reserve0 / 1e18) = reserve1 * 1e12 / reserve0
     async function getAeroPrice(provider) {
         const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_POOL_ABI, provider);
 
@@ -291,7 +295,6 @@
         return (reserveUSDC * 1e12) / reserveWETH;
     }
 
-    // ─── GAS COST ──────────────────────────────────────────────────────────────
     async function fetchGasPrice(provider) {
         try {
             const feeData = await withTimeout(provider.getFeeData(), CONFIG.RPC_TIMEOUT_MS);
@@ -304,9 +307,8 @@
         return lastBaseFeeGwei * 1e-9 * CONFIG.ESTIMATED_GAS_UNITS * CONFIG.ETH_PRICE_USD;
     }
 
-    // ─── ARB CALCULATION ───────────────────────────────────────────────────────
-    function calcArb(uniPrice, aeroPrice) {
-        const loan     = CONFIG.LOAN_AMOUNT_USDC;
+    function calcArb(uniPrice, aeroPrice, loanAmount) {
+        const loan     = loanAmount || CONFIG.MAX_LOAN_USDC;
         const slip     = CONFIG.SLIPPAGE_PCT;
         const gas      = calcGasCostUSD();
         const slipCost = loan * slip * 2;
@@ -321,22 +323,23 @@
 
         if (d1Net >= d2Net) {
             return {
-                direction: 1, label: "UNI→AERO",
+                direction: 1, label: "UNI->AERO",
                 buyPrice: uniPrice, sellPrice: aeroPrice,
                 grossUSD: d1Out - loan, slipCost, gasCost: gas, netUSD: d1Net,
-                spreadPct: ((aeroPrice - uniPrice) / uniPrice) * 100
+                spreadPct: ((aeroPrice - uniPrice) / uniPrice) * 100,
+                loanUsed: loan
             };
         } else {
             return {
-                direction: 2, label: "AERO→UNI",
+                direction: 2, label: "AERO->UNI",
                 buyPrice: aeroPrice, sellPrice: uniPrice,
                 grossUSD: d2Out - loan, slipCost, gasCost: gas, netUSD: d2Net,
-                spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100
+                spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100,
+                loanUsed: loan
             };
         }
     }
 
-    // ─── UI UPDATE ─────────────────────────────────────────────────────────────
     function updateUI(uniPrice, aeroPrice, arb) {
         document.getElementById("price-uni").textContent  = `$${uniPrice.toFixed(2)}`;
         document.getElementById("price-aero").textContent = `$${aeroPrice.toFixed(2)}`;
@@ -367,10 +370,12 @@
         netProfEl.className   = "n-val" + (arb.netUSD < 0 ? " neg" : "");
 
         document.getElementById("arb-direction").textContent = arb.label;
+        document.getElementById("active-loan").textContent   = `${arb.loanUsed} USDC`;
         document.getElementById("arb-dir").textContent       = arb.label;
         document.getElementById("arb-spread").textContent    = `${Math.abs(arb.spreadPct).toFixed(4)}%`;
         document.getElementById("arb-buy").textContent       = `$${arb.buyPrice.toFixed(2)}`;
         document.getElementById("arb-sell").textContent      = `$${arb.sellPrice.toFixed(2)}`;
+        document.getElementById("arb-loan").textContent      = `${arb.loanUsed} USDC`;
 
         const arbNetEl = document.getElementById("arb-net");
         arbNetEl.textContent = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
@@ -397,7 +402,121 @@
         }
     }
 
-    // ─── SCAN LOOP ─────────────────────────────────────────────────────────────
+    function isCooldownActive() {
+        return (Date.now() - lastStrikeTime) < CONFIG.STRIKE_COOLDOWN_MS;
+    }
+
+    function getCooldownRemaining() {
+        const remaining = CONFIG.STRIKE_COOLDOWN_MS - (Date.now() - lastStrikeTime);
+        return Math.max(0, Math.ceil(remaining / 1000));
+    }
+
+    async function simulateWithAdaptiveLoan(contract, direction) {
+        for (let i = 0; i < CONFIG.LOAN_STEPS.length; i++) {
+            const loanUsdc = CONFIG.LOAN_STEPS[i];
+            const loanAmt  = BigInt(loanUsdc) * BigInt(10 ** CONFIG.USDC_DECIMALS);
+
+            try {
+                await contract.strike.staticCall(direction, loanAmt);
+                log(`Simulation OK at ${loanUsdc} USDC loan`, "success");
+                activeLoanAmount = loanUsdc;
+                consecutiveFails = 0;
+                return { success: true, loanUsdc, loanAmt };
+            } catch (simErr) {
+                const errMsg = simErr.message || "";
+                const isPriceImpact = errMsg.toLowerCase().includes("price impact") ||
+                                      errMsg.toLowerCase().includes("too high") ||
+                                      errMsg.toLowerCase().includes("slippage") ||
+                                      errMsg.toLowerCase().includes("insufficient output");
+
+                if (isPriceImpact && i < CONFIG.LOAN_STEPS.length - 1) {
+                    log(`Sim failed at ${loanUsdc} USDC (price impact) -> trying ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
+                    continue;
+                }
+
+                log(`Simulation FAILED at ${loanUsdc} USDC: ${errMsg.slice(0, 80)}`, "error");
+                return { success: false, loanUsdc, error: errMsg };
+            }
+        }
+        return { success: false, loanUsdc: CONFIG.LOAN_STEPS[CONFIG.LOAN_STEPS.length - 1], error: "All loan sizes failed" };
+    }
+
+    async function executeStrike() {
+        if (isStriking || !walletConnected || !walletSigner) return;
+
+        if (isCooldownActive()) {
+            log(`Cooldown active (${getCooldownRemaining()}s remaining)`, "info");
+            return;
+        }
+
+        isStriking = true;
+        lastStrikeTime = Date.now();
+
+        const btn = document.getElementById("manual-strike-btn");
+        btn.disabled    = true;
+        btn.classList.add("striking");
+        btn.textContent = "EXECUTING...";
+
+        try {
+            const dir = bestDirection || 1;
+            log(`Strike: direction=${dir} — adaptive loan sizing`, "strike");
+            document.getElementById("status-text").textContent = "SIMULATING...";
+
+            const contract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
+
+            const simResult = await simulateWithAdaptiveLoan(contract, dir);
+
+            if (!simResult.success) {
+                consecutiveFails++;
+                document.getElementById("status-text").textContent = "SIM_FAILED";
+
+                if (consecutiveFails >= CONFIG.MAX_SIM_RETRIES) {
+                    log(`${consecutiveFails} consecutive sim failures — increasing cooldown`, "error");
+                    lastStrikeTime = Date.now() + (CONFIG.STRIKE_COOLDOWN_MS * 2);
+                }
+                return;
+            }
+
+            const gasCost = calcGasCostUSD();
+            const estProfit = (simResult.loanUsdc * bestNetUSD) / CONFIG.MAX_LOAN_USDC;
+            if (estProfit < CONFIG.MIN_NET_PROFIT_USD) {
+                log(`Adjusted loan ${simResult.loanUsdc} USDC est net $${estProfit.toFixed(4)} < $${CONFIG.MIN_NET_PROFIT_USD} — skipping`, "info");
+                document.getElementById("status-text").textContent = "BELOW_THRESHOLD";
+                return;
+            }
+
+            document.getElementById("status-text").textContent = "SUBMITTING TX...";
+            log(`Submitting tx: direction=${dir} loan=${simResult.loanUsdc} USDC`, "strike");
+
+            const tx = await contract.strike(dir, simResult.loanAmt, {
+                gasLimit: BigInt(CONFIG.ESTIMATED_GAS_UNITS + 50000)
+            });
+            log(`TX sent: ${tx.hash.slice(0,20)}...`, "strike");
+
+            document.getElementById("status-text").textContent = "AWAITING CONFIRM...";
+            const receipt = await tx.wait(1);
+
+            if (receipt && receipt.status === 1) {
+                log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber} loan=${simResult.loanUsdc} USDC`, "success");
+                document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
+                consecutiveFails = 0;
+            } else {
+                log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
+                document.getElementById("status-text").textContent = "TX_REVERTED";
+                consecutiveFails++;
+            }
+        } catch (e) {
+            log(`Strike error: ${e.message.slice(0,100)}`, "error");
+            document.getElementById("status-text").textContent = "STRIKE_ERROR";
+            consecutiveFails++;
+        } finally {
+            isStriking      = false;
+            btn.classList.remove("striking");
+            btn.disabled    = !walletConnected;
+            btn.textContent = "\u25BA MANUAL STRIKE";
+        }
+    }
+
     async function scan() {
         tickCount++;
         document.getElementById("tick-counter").textContent = `TICK: ${tickCount}`;
@@ -423,12 +542,19 @@
         if (uniResult.status === "fulfilled" && aeroResult.status === "fulfilled") {
             const uniPrice  = uniResult.value;
             const aeroPrice = aeroResult.value;
-            const arb       = calcArb(uniPrice, aeroPrice);
+            const arb       = calcArb(uniPrice, aeroPrice, activeLoanAmount);
             updateUI(uniPrice, aeroPrice, arb);
 
             if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
                 log(`OPPORTUNITY: ${arb.label} spread=${Math.abs(arb.spreadPct).toFixed(4)}% net=+$${arb.netUSD.toFixed(4)}`, "strike");
                 document.getElementById("status-text").textContent = "OPPORTUNITY FOUND";
+
+                if (autoStrikeEnabled && walletConnected && !isStriking && !isCooldownActive()) {
+                    log(`AUTO-STRIKE triggered: ${arb.label} net=+$${arb.netUSD.toFixed(4)}`, "strike");
+                    executeStrike();
+                } else if (isCooldownActive()) {
+                    document.getElementById("status-text").textContent = `COOLDOWN (${getCooldownRemaining()}s)`;
+                }
             } else {
                 document.getElementById("status-text").textContent = "MONITORING";
             }
@@ -441,9 +567,8 @@
         setTimeout(scan, CONFIG.SCAN_MS);
     }
 
-    // ─── WALLET CONNECTION ─────────────────────────────────────────────────────
     async function connectWallet() {
-        if (!window.ethereum) { log("No wallet — install MetaMask", "error"); return; }
+        if (!window.ethereum) { log("No wallet -- install MetaMask", "error"); return; }
         try {
             const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
             if (!accounts || !accounts.length) throw new Error("No accounts");
@@ -485,67 +610,24 @@
             btn.disabled    = false;
             btn.textContent = "\u25BA MANUAL STRIKE";
             log(`Wallet connected: ${addr.slice(0,10)}...`, "success");
+            log(`Auto-strike: ${autoStrikeEnabled ? "ENABLED" : "DISABLED"}`, "info");
         } catch (e) {
             log(`Wallet error: ${e.message}`, "error");
         }
     }
 
-    // ─── STRIKE ────────────────────────────────────────────────────────────────
-    async function executeStrike() {
-        if (isStriking || !walletConnected || !walletSigner) return;
-        isStriking = true;
-
-        const btn = document.getElementById("manual-strike-btn");
-        btn.disabled    = true;
-        btn.classList.add("striking");
-        btn.textContent = "EXECUTING...";
-
-        try {
-            const dir     = bestDirection || 1;
-            const loanAmt = BigInt(CONFIG.LOAN_AMOUNT_USDC) * BigInt(10 ** CONFIG.USDC_DECIMALS);
-            log(`Strike: direction=${dir} loan=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
-            document.getElementById("status-text").textContent = "SIMULATING...";
-
-            const contract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
-
-            try {
-                await contract.strike.staticCall(dir, loanAmt);
-                log("Simulation OK — submitting tx...", "info");
-            } catch (simErr) {
-                log(`Simulation FAILED: ${simErr.message.slice(0,80)}`, "error");
-                document.getElementById("status-text").textContent = "SIM_FAILED";
-                return;
-            }
-
-            document.getElementById("status-text").textContent = "SUBMITTING TX...";
-            const tx = await contract.strike(dir, loanAmt);
-            log(`TX sent: ${tx.hash.slice(0,20)}...`, "strike");
-
-            document.getElementById("status-text").textContent = "AWAITING CONFIRM...";
-            const receipt = await tx.wait(1);
-
-            if (receipt && receipt.status === 1) {
-                log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber}`, "success");
-                document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
-            } else {
-                log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
-                document.getElementById("status-text").textContent = "TX_REVERTED";
-            }
-        } catch (e) {
-            log(`Strike error: ${e.message.slice(0,100)}`, "error");
-            document.getElementById("status-text").textContent = "STRIKE_ERROR";
-        } finally {
-            isStriking      = false;
-            btn.classList.remove("striking");
-            btn.disabled    = !walletConnected;
-            btn.textContent = "\u25BA MANUAL STRIKE";
-        }
-    }
-
-    // ─── INIT ──────────────────────────────────────────────────────────────────
     async function init() {
         const host = CONFIG.RPCs[currentRpc].replace("https://","").split("/")[0];
         document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
+
+        const autoToggle = document.getElementById("auto-strike-toggle");
+        const autoStatus = document.getElementById("auto-strike-status");
+        autoToggle.addEventListener("change", () => {
+            autoStrikeEnabled = autoToggle.checked;
+            autoStatus.textContent = autoStrikeEnabled ? "ENABLED" : "DISABLED";
+            autoStatus.className = "auto-status " + (autoStrikeEnabled ? "on" : "off");
+            log(`Auto-strike ${autoStrikeEnabled ? "ENABLED" : "DISABLED"}`, "info");
+        });
 
         if (window.ethereum) {
             try {
@@ -559,7 +641,7 @@
             window.ethereum.on("chainChanged",    () => location.reload());
         } else {
             document.getElementById("network-status").textContent = "NO_WALLET";
-            log("No wallet — read-only mode", "info");
+            log("No wallet -- read-only mode", "info");
         }
 
         document.getElementById("manual-strike-btn").addEventListener("click", async () => {
@@ -567,7 +649,9 @@
             else await executeStrike();
         });
 
-        log("Scanner started — UNI V3 + AERO vAMM WETH/USDC on Base", "success");
+        log("Scanner started -- UNI V3 + AERO vAMM WETH/USDC on Base", "success");
+        log("Auto-strike ENABLED -- will fire when net >= $1.00", "info");
+        log("Adaptive loan sizing: steps down from 3000 to 100 USDC on price impact errors", "info");
         scan();
     }
 
