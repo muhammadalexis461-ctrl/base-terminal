@@ -227,7 +227,7 @@
     let lastBaseFeeGwei   = 0.001;
     let walletConnected   = false;
     let walletSigner      = null;
-    let bestDirection     = 0;
+    let bestDirection     = null;
     let bestNetUSD        = 0;
     let aeroToken0        = null;
     let autoStrikeEnabled = true;
@@ -331,7 +331,7 @@
             };
         } else {
             return {
-                direction: 2, label: "AERO->UNI",
+                direction: 0, label: "AERO->UNI",
                 buyPrice: aeroPrice, sellPrice: uniPrice,
                 grossUSD: d2Out - loan, slipCost, gasCost: gas, netUSD: d2Net,
                 spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100,
@@ -458,7 +458,7 @@
         btn.textContent = "EXECUTING...";
 
         try {
-            const dir = bestDirection || 1;
+            const dir = bestDirection !== null ? bestDirection : 1;
             log(`Strike: direction=${dir} — adaptive loan sizing`, "strike");
             document.getElementById("status-text").textContent = "SIMULATING...";
 
@@ -477,7 +477,6 @@
                 return;
             }
 
-            const gasCost = calcGasCostUSD();
             const estProfit = (simResult.loanUsdc * bestNetUSD) / CONFIG.MAX_LOAN_USDC;
             if (estProfit < CONFIG.MIN_NET_PROFIT_USD) {
                 log(`Adjusted loan ${simResult.loanUsdc} USDC est net $${estProfit.toFixed(4)} < $${CONFIG.MIN_NET_PROFIT_USD} — skipping`, "info");
