@@ -90,7 +90,7 @@
 </head>
 <body>
     <h1>BASE_MAINNET ARB_BOT V2.0 (DIRECTIONAL ONLY)</h1>
-    <p class="subtitle">TWO-WAY_ARBITRAGE &middot; UNI &#x21C4; AERO &middot; USDC/WETH &middot; FLASH_LOAN &middot; $1_NET_GUARD &middot; SIMULATE_FIRST</p>
+    <p class="subtitle">TWO-WAY_ARBITRAGE &middot; UNI &#x21C4; AERO &middot; USDC/WETH &middot; FLASH_LOAN &middot; COSTS+$1_GUARD &middot; SIMULATE_FIRST</p>
     <div class="network-badge">
         NETWORK: <span id="network-status">CHECKING...</span>
         &nbsp;|&nbsp; WALLET: <span id="wallet-addr">NOT_CONNECTED</span>
@@ -102,6 +102,7 @@
             <div class="net-item"><span class="n-label">GROSS_PROFIT</span><span class="n-val" id="gross-profit">$0.0000</span></div>
             <div class="net-item"><span class="n-label">SLIPPAGE_COST</span><span class="n-val alert" id="slip-cost">$0.0000</span></div>
             <div class="net-item"><span class="n-label">EST_GAS_COST</span><span class="n-val alert" id="gas-cost">$0.0000</span></div>
+            <div class="net-item"><span class="n-label">TOTAL_COSTS</span><span class="n-val alert" id="total-costs">$0.0000</span></div>
             <div class="net-item"><span class="n-label">NET_PROFIT</span><span class="n-val" id="net-profit">$0.0000</span></div>
             <div class="net-item"><span class="n-label">DIRECTION</span><span class="n-val" id="arb-direction">&mdash;</span></div>
             <div class="net-item"><span class="n-label">LOAN_SIZE</span><span class="n-val" id="active-loan">&mdash;</span></div>
@@ -126,6 +127,8 @@
         <div class="arb-row"><span class="arb-label">BUY_PRICE</span><span class="arb-val" id="arb-buy">$0.00</span></div>
         <div class="arb-row"><span class="arb-label">SELL_PRICE</span><span class="arb-val" id="arb-sell">$0.00</span></div>
         <div class="arb-row"><span class="arb-label">NET_PROFIT</span><span class="arb-val" id="arb-net">&mdash;</span></div>
+        <div class="arb-row"><span class="arb-label">TOTAL_COSTS</span><span class="arb-val alert" id="arb-costs">&mdash;</span></div>
+        <div class="arb-row"><span class="arb-label">MIN_GROSS_TO_STRIKE</span><span class="arb-val alert" id="arb-min-gross">&mdash;</span></div>
         <div class="arb-row"><span class="arb-label">ACTIVE_LOAN</span><span class="arb-val" id="arb-loan">&mdash;</span></div>
         <div class="arb-row"><span class="arb-label">STATUS</span><span class="arb-val alert" id="arb-status">SCANNING...</span></div>
     </div>
@@ -138,7 +141,7 @@
             <div class="data-row"><span class="label">FLASH_FEE</span><span class="value">0.00%</span></div>
             <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.05%</span></div>
             <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">3s</span></div>
-            <div class="data-row"><span class="label">NET_MIN_TRIGGER</span><span class="value">$1.00</span></div>
+            <div class="data-row"><span class="label">NET_MIN_TRIGGER</span><span class="value">COSTS + $1.00</span></div>
         </div>
         <div class="panel">
             <div class="panel-title">STRATEGY</div>
@@ -170,7 +173,7 @@
     <div class="log-box" id="logs"></div>
     <div class="footer-note">
         TWO-WAY DIRECTIONAL: Borrow USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
-        Auto-selects best direction &middot; Adaptive loan sizing (steps down on any revert) &middot; eth_call simulation first &middot; Fires when NET &ge; $1.00 after gas + slippage
+        Auto-selects best direction &middot; Adaptive loan sizing (steps down on any revert) &middot; eth_call simulation first &middot; Fires when GROSS covers slippage + gas + $1.00 profit
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
@@ -195,7 +198,7 @@
         LOAN_STEPS:          [3000, 2000, 1500, 1000, 750, 500, 300, 200, 100],
         USDC_DECIMALS:       6,
         WETH_DECIMALS:       18,
-        MIN_NET_PROFIT_USD:  1.00,
+        MIN_PROFIT_ABOVE_COSTS: 1.00,
         SLIPPAGE_PCT:        0.0005,
         ESTIMATED_GAS_UNITS: 350000,
         SCAN_MS:             3000,
@@ -323,19 +326,25 @@
         const gas      = calcGasCostUSD();
         const slipCost = loan * slip * 2;
 
-        const d1Weth  = (loan / uniPrice)  * (1 - slip);
-        const d1Out   = d1Weth * aeroPrice * (1 - slip);
-        const d1Net   = (d1Out - loan) - gas;
+        const d1Weth    = (loan / uniPrice)  * (1 - slip);
+        const d1Out     = d1Weth * aeroPrice * (1 - slip);
+        const d1Gross   = d1Out - loan;
+        const d1Net     = d1Gross - slipCost - gas;
 
-        const d2Weth  = (loan / aeroPrice) * (1 - slip);
-        const d2Out   = d2Weth * uniPrice  * (1 - slip);
-        const d2Net   = (d2Out - loan) - gas;
+        const d2Weth    = (loan / aeroPrice) * (1 - slip);
+        const d2Out     = d2Weth * uniPrice  * (1 - slip);
+        const d2Gross   = d2Out - loan;
+        const d2Net     = d2Gross - slipCost - gas;
+
+        const totalCosts = slipCost + gas;
+        const minGross   = totalCosts + CONFIG.MIN_PROFIT_ABOVE_COSTS;
 
         if (d1Net >= d2Net) {
             return {
                 direction: 1, label: "UNI->AERO",
                 buyPrice: uniPrice, sellPrice: aeroPrice,
-                grossUSD: d1Out - loan, slipCost, gasCost: gas, netUSD: d1Net,
+                grossUSD: d1Gross, slipCost, gasCost: gas, netUSD: d1Net,
+                totalCosts, minGross,
                 spreadPct: ((aeroPrice - uniPrice) / uniPrice) * 100,
                 loanUsed: loan
             };
@@ -343,7 +352,8 @@
             return {
                 direction: 0, label: "AERO->UNI",
                 buyPrice: aeroPrice, sellPrice: uniPrice,
-                grossUSD: d2Out - loan, slipCost, gasCost: gas, netUSD: d2Net,
+                grossUSD: d2Gross, slipCost, gasCost: gas, netUSD: d2Net,
+                totalCosts, minGross,
                 spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100,
                 loanUsed: loan
             };
@@ -374,6 +384,7 @@
         document.getElementById("gross-profit").textContent = `$${arb.grossUSD.toFixed(4)}`;
         document.getElementById("slip-cost").textContent    = `$${arb.slipCost.toFixed(4)}`;
         document.getElementById("gas-cost").textContent     = `$${arb.gasCost.toFixed(4)}`;
+        document.getElementById("total-costs").textContent  = `$${arb.totalCosts.toFixed(4)}`;
 
         const netProfEl = document.getElementById("net-profit");
         netProfEl.textContent = `$${arb.netUSD.toFixed(4)}`;
@@ -385,14 +396,16 @@
         document.getElementById("arb-spread").textContent    = `${Math.abs(arb.spreadPct).toFixed(4)}%`;
         document.getElementById("arb-buy").textContent       = `$${arb.buyPrice.toFixed(2)}`;
         document.getElementById("arb-sell").textContent      = `$${arb.sellPrice.toFixed(2)}`;
+        document.getElementById("arb-costs").textContent     = `$${arb.totalCosts.toFixed(4)}`;
+        document.getElementById("arb-min-gross").textContent = `$${arb.minGross.toFixed(4)}`;
         document.getElementById("arb-loan").textContent      = `${arb.loanUsed} USDC`;
 
         const arbNetEl = document.getElementById("arb-net");
         arbNetEl.textContent = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
-        arbNetEl.className   = "arb-val " + (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : arb.netUSD < 0 ? "neg" : "alert");
+        arbNetEl.className   = "arb-val " + (arb.grossUSD >= arb.minGross ? "pos" : arb.netUSD < 0 ? "neg" : "alert");
 
         const arbStatusEl = document.getElementById("arb-status");
-        if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
+        if (arb.grossUSD >= arb.minGross) {
             arbStatusEl.textContent = "OPPORTUNITY DETECTED";
             arbStatusEl.className   = "arb-val pos";
         } else {
@@ -406,7 +419,7 @@
         const btn = document.getElementById("manual-strike-btn");
         if (walletConnected && !isStriking) {
             btn.disabled    = false;
-            btn.textContent = arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD
+            btn.textContent = arb.grossUSD >= arb.minGross
                 ? `\u25BA STRIKE ${arb.label} (+$${arb.netUSD.toFixed(4)})`
                 : `\u25BA MANUAL STRIKE (${arb.label})`;
         }
@@ -514,8 +527,6 @@
                     (simResult.error || "").toLowerCase().includes("spread too thin");
 
                 if (isMarketCondition) {
-                    // Normal market condition — spread too thin for any loan size
-                    // Don't count as a system failure, just wait for next opportunity
                     document.getElementById("status-text").textContent = "SPREAD_TOO_THIN";
                     lastStrikeTime = Date.now();
                     return;
@@ -533,9 +544,12 @@
                 return;
             }
 
-            const estProfit = (simResult.loanUsdc * bestNetUSD) / CONFIG.MAX_LOAN_USDC;
-            if (estProfit < CONFIG.MIN_NET_PROFIT_USD) {
-                log(`Adjusted loan ${simResult.loanUsdc} USDC est net $${estProfit.toFixed(4)} < $${CONFIG.MIN_NET_PROFIT_USD} — skipping`, "info");
+            const recalcGas   = calcGasCostUSD();
+            const recalcSlip  = simResult.loanUsdc * CONFIG.SLIPPAGE_PCT * 2;
+            const recalcCosts = recalcSlip + recalcGas;
+            const scaledGross = (simResult.loanUsdc / CONFIG.MAX_LOAN_USDC) * (bestNetUSD + calcGasCostUSD() + CONFIG.MAX_LOAN_USDC * CONFIG.SLIPPAGE_PCT * 2);
+            if (scaledGross < recalcCosts + CONFIG.MIN_PROFIT_ABOVE_COSTS) {
+                log(`Adjusted loan ${simResult.loanUsdc} USDC: gross $${scaledGross.toFixed(4)} < costs $${recalcCosts.toFixed(4)} + $${CONFIG.MIN_PROFIT_ABOVE_COSTS} — skipping`, "info");
                 document.getElementById("status-text").textContent = "BELOW_THRESHOLD";
                 return;
             }
@@ -543,7 +557,6 @@
             document.getElementById("status-text").textContent = "SUBMITTING TX...";
             log(`Submitting tx: direction=${dir} loan=${simResult.loanUsdc} USDC`, "strike");
 
-            // Actual tx submission uses the wallet signer (MetaMask signs here)
             const signerContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
             const tx = await signerContract.strike(dir, simResult.loanAmt, {
                 gasLimit: BigInt(CONFIG.ESTIMATED_GAS_UNITS + 50000)
@@ -557,7 +570,7 @@
                 log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber} loan=${simResult.loanUsdc} USDC`, "success");
                 document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
                 consecutiveFails = 0;
-                CONFIG.STRIKE_COOLDOWN_MS = 15000;  // reset cooldown on success
+                CONFIG.STRIKE_COOLDOWN_MS = 15000;
             } else {
                 log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
                 document.getElementById("status-text").textContent = "TX_REVERTED";
@@ -609,12 +622,12 @@
             const arb       = calcArb(uniPrice, aeroPrice, activeLoanAmount);
             updateUI(uniPrice, aeroPrice, arb);
 
-            if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
-                log(`OPPORTUNITY: ${arb.label} spread=${Math.abs(arb.spreadPct).toFixed(4)}% net=+$${arb.netUSD.toFixed(4)}`, "strike");
+            if (arb.grossUSD >= arb.minGross) {
+                log(`OPPORTUNITY: ${arb.label} spread=${Math.abs(arb.spreadPct).toFixed(4)}% gross=$${arb.grossUSD.toFixed(4)} > costs($${arb.totalCosts.toFixed(4)})+$1`, "strike");
                 document.getElementById("status-text").textContent = "OPPORTUNITY FOUND";
 
                 if (autoStrikeEnabled && walletConnected && !isStriking && !isCooldownActive()) {
-                    log(`AUTO-STRIKE triggered: ${arb.label} net=+$${arb.netUSD.toFixed(4)}`, "strike");
+                    log(`AUTO-STRIKE triggered: ${arb.label} net=+$${arb.netUSD.toFixed(4)} (after costs)`, "strike");
                     executeStrike();
                 } else if (isCooldownActive()) {
                     document.getElementById("status-text").textContent = `COOLDOWN (${getCooldownRemaining()}s)`;
@@ -718,7 +731,7 @@
         });
 
         log("Scanner started -- UNI V3 + AERO vAMM WETH/USDC on Base", "success");
-        log("Auto-strike ENABLED -- will fire when net >= $1.00", "info");
+        log("Auto-strike ENABLED -- will fire when gross covers slippage + gas + $1.00", "info");
         log("Adaptive sim: any revert steps down loan size (3000->2000->1500->...->100 USDC)", "info");
         scan();
     }
