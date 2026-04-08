@@ -164,17 +164,24 @@
     // ─── CONFIG ────────────────────────────────────────────────────────────────
     const CONFIG = {
         RPCs: [
-            "https://base.drpc.org",
             "https://mainnet.base.org",
+            "https://base.drpc.org",
             "https://base-rpc.publicnode.com",
             "https://base.llamarpc.com",
             "https://1rpc.io/base",
         ],
-        UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_FACTORY:        "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
+        // Uniswap V3 USDC/WETH 0.05% pool on Base
+        // token0 = WETH (0x4200… < 0x8335…), token1 = USDC
+        UNI_POOL:   "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+
+        // Aerodrome vAMM-WETH/USDC pool on Base (hardcoded — verified on-chain)
+        // token0 = WETH (0x4200…), token1 = USDC (0x8335…)
+        AERO_POOL:  "0xcDAC0d6c6C59727a65F871236188350531885C43",
+
         BOT_CONTRACT:        "0xF552e4fFc01c8dD3fDba4623e54bB9cf1DDE8B70",
         WETH:                "0x4200000000000000000000000000000000000006",
         USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+
         LOAN_AMOUNT_USDC:    3000,
         USDC_DECIMALS:       6,
         WETH_DECIMALS:       18,
@@ -193,19 +200,14 @@
     const BOT_ABI = [
         "function strike(uint8 direction, uint256 amount) external"
     ];
+
     const UNI_SLOT0_ABI = [
         "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"
     ];
-    const AERO_FACTORY_ABI = [
-        "function getPair(address tokenA, address tokenB, bool stable) external view returns (address pair)"
-    ];
-    const AERO_PAIR_ABI = [
+
+    const AERO_POOL_ABI = [
         "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
-        "function token0() view returns (address)",
-        "function token1() view returns (address)"
-    ];
-    const ERC20_DECIMALS_ABI = [
-        "function decimals() view returns (uint8)"
+        "function token0() view returns (address)"
     ];
 
     // ─── STATE ─────────────────────────────────────────────────────────────────
@@ -213,24 +215,19 @@
     let tickCount       = 0;
     let isStriking      = false;
     let lastBaseFeeGwei = 0.001;
-    let aeroPairAddr    = null;
     let walletConnected = false;
     let walletSigner    = null;
     let bestDirection   = 0;
     let bestNetUSD      = 0;
-    let scanTimer       = null;
+    let aeroToken0      = null;
 
-    // ─── HELPERS ───────────────────────────────────────────────────────────────
-    function getSortedTokens(tokenA, tokenB) {
-        return tokenA.toLowerCase() < tokenB.toLowerCase()
-            ? [tokenA, tokenB]
-            : [tokenB, tokenA];
-    }
-
+    // ─── UTILITIES ─────────────────────────────────────────────────────────────
     function withTimeout(promise, ms) {
         return Promise.race([
             promise,
-            new Promise((_, rej) => setTimeout(() => rej(new Error("RPC timeout")), ms))
+            new Promise((_, rej) =>
+                setTimeout(() => rej(new Error("RPC timeout")), ms)
+            )
         ]);
     }
 
@@ -240,8 +237,9 @@
 
     function rotateRpc(reason) {
         currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
-        log(`RPC rotated (${reason}) → ${CONFIG.RPCs[currentRpc].replace("https://", "")}`, "info");
-        document.getElementById("rpc-indicator").textContent = `RPC: ${CONFIG.RPCs[currentRpc].replace("https://", "").split("/")[0]}`;
+        const host = CONFIG.RPCs[currentRpc].replace("https://", "").split("/")[0];
+        log(`RPC rotated (${reason}) → ${host}`, "info");
+        document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
     }
 
     // ─── LOGGING ───────────────────────────────────────────────────────────────
@@ -249,210 +247,114 @@
         const box = document.getElementById("logs");
         const ts  = new Date().toLocaleTimeString("en-US", { hour12: false });
         const el  = document.createElement("div");
-        el.className = `log-entry ${cls}`;
+        el.className   = `log-entry ${cls}`;
         el.textContent = `[${ts}] ${msg}`;
         box.prepend(el);
         while (box.children.length > 80) box.removeChild(box.lastChild);
     }
 
     // ─── UNISWAP V3 PRICE ──────────────────────────────────────────────────────
-    // Returns USDC per WETH (how many USDC to buy 1 WETH)
+    // Pool: WETH (token0, 18 dec) / USDC (token1, 6 dec)
+    // sqrtPriceX96 = sqrt(token1/token0 in raw units) * 2^96
+    // price_raw = (sqrtPriceX96 / 2^96)^2  →  USDC_raw per WETH_raw
+    // natural USDC per WETH = price_raw * 10^(18-6) = price_raw * 1e12
     async function getUniPrice(provider) {
-        const pool = new ethers.Contract(CONFIG.UNI_POOL, UNI_SLOT0_ABI, provider);
+        const pool  = new ethers.Contract(CONFIG.UNI_POOL, UNI_SLOT0_ABI, provider);
         const slot0 = await withTimeout(pool.slot0(), CONFIG.RPC_TIMEOUT_MS);
         const sqrtPriceX96 = BigInt(slot0[0].toString());
-
-        // sqrtPriceX96 is price of token0 in terms of token1 scaled by 2^96
-        // UNI_POOL is USDC/WETH (0.05% fee) on Base
-        // token0 = USDC (6 dec), token1 = WETH (18 dec)
-        // price = (sqrtPriceX96 / 2^96)^2 * 10^(decimals1 - decimals0)
-        // => WETH per USDC
-        // We want USDC per WETH so invert
-        const Q96 = BigInt(2) ** BigInt(96);
-        // price token1/token0 = (sqrtP/Q96)^2 * 10^(d0-d1)
-        // = sqrtP^2 / Q96^2 * 10^(6-18) = sqrtP^2 / Q96^2 / 10^12
-        // => WETH per USDC (in natural units)
-        // USDC per WETH = 1 / (WETH per USDC)
-
-        // Use float math for display
-        const sqrtFloat = Number(sqrtPriceX96) / Number(Q96);
-        const priceRaw  = sqrtFloat * sqrtFloat; // token1/token0 in raw units
-        // Adjust for decimals: USDC=6, WETH=18
-        const decimalAdj = Math.pow(10, CONFIG.USDC_DECIMALS - CONFIG.WETH_DECIMALS); // 10^(6-18) = 10^-12
-        const wethPerUsdc = priceRaw * decimalAdj;
-        const usdcPerWeth = 1 / wethPerUsdc;
-        return usdcPerWeth;
-    }
-
-    // ─── AERODROME PAIR RESOLUTION ─────────────────────────────────────────────
-    async function resolveAeroPair(provider) {
-        const ZERO = "0x0000000000000000000000000000000000000000";
-        if (aeroPairAddr) return aeroPairAddr;
-        try {
-            const factory = new ethers.Contract(CONFIG.AERO_FACTORY, AERO_FACTORY_ABI, provider);
-            const [token0, token1] = getSortedTokens(CONFIG.USDC, CONFIG.WETH);
-
-            // Try volatile pair first
-            let addr = await withTimeout(
-                factory.getPair(token0, token1, false),
-                CONFIG.RPC_TIMEOUT_MS
-            );
-            if (addr && addr.toLowerCase() !== ZERO) {
-                aeroPairAddr = addr;
-                log(`AERO volatile pair: ${addr.slice(0, 10)}...`, "success");
-                return addr;
-            }
-            // Try stable pair
-            addr = await withTimeout(
-                factory.getPair(token0, token1, true),
-                CONFIG.RPC_TIMEOUT_MS
-            );
-            if (addr && addr.toLowerCase() !== ZERO) {
-                aeroPairAddr = addr;
-                log(`AERO stable pair: ${addr.slice(0, 10)}...`, "success");
-                return addr;
-            }
-            aeroPairAddr = null;
-            throw new Error("No USDC/WETH pair found on Aerodrome");
-        } catch (e) {
-            aeroPairAddr = null;
-            throw new Error(`Pair resolution failed: ${e.message.slice(0, 80)}`);
-        }
+        const Q96           = BigInt(2) ** BigInt(96);
+        const sqrtFloat     = Number(sqrtPriceX96) / Number(Q96);
+        const priceRaw      = sqrtFloat * sqrtFloat; // USDC_raw / WETH_raw (~2.5e-9 at $2500)
+        return priceRaw * 1e12;                      // multiply by 10^(18-6)
     }
 
     // ─── AERODROME PRICE ───────────────────────────────────────────────────────
-    // Returns USDC per WETH
+    // Pool vAMM-WETH/USDC: token0=WETH (18 dec), token1=USDC (6 dec)
+    // USDC per WETH = (reserve1 / 1e6) / (reserve0 / 1e18) = reserve1 * 1e12 / reserve0
     async function getAeroPrice(provider) {
-        const pairAddr = await resolveAeroPair(provider);
-        const pair = new ethers.Contract(pairAddr, AERO_PAIR_ABI, provider);
+        const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_POOL_ABI, provider);
 
-        const [reserves, t0Addr] = await Promise.all([
-            withTimeout(pair.getReserves(), CONFIG.RPC_TIMEOUT_MS),
-            withTimeout(pair.token0(), CONFIG.RPC_TIMEOUT_MS)
-        ]);
-
-        const reserve0 = BigInt(reserves[0].toString());
-        const reserve1 = BigInt(reserves[1].toString());
-
-        // Determine which reserve is USDC and which is WETH
-        const isUSDCToken0 = t0Addr.toLowerCase() === CONFIG.USDC.toLowerCase();
-
-        let reserveUSDC, reserveWETH;
-        if (isUSDCToken0) {
-            reserveUSDC = reserve0;
-            reserveWETH = reserve1;
-        } else {
-            reserveUSDC = reserve1;
-            reserveWETH = reserve0;
+        if (!aeroToken0) {
+            aeroToken0 = (await withTimeout(pool.token0(), CONFIG.RPC_TIMEOUT_MS)).toLowerCase();
         }
 
-        if (reserveWETH === 0n || reserveUSDC === 0n) {
-            throw new Error("Aerodrome reserves are zero");
-        }
+        const reserves = await withTimeout(pool.getReserves(), CONFIG.RPC_TIMEOUT_MS);
+        const r0 = Number(reserves[0]);
+        const r1 = Number(reserves[1]);
 
-        // USDC has 6 decimals, WETH has 18 decimals
-        // price in USDC per WETH = (reserveUSDC / 10^6) / (reserveWETH / 10^18)
-        //                        = reserveUSDC * 10^12 / reserveWETH
-        const usdcPerWeth = (Number(reserveUSDC) * 1e12) / Number(reserveWETH);
-        return usdcPerWeth;
+        if (r0 === 0 || r1 === 0) throw new Error("Aerodrome: zero reserves");
+
+        const isWethToken0 = aeroToken0 === CONFIG.WETH.toLowerCase();
+        const reserveWETH  = isWethToken0 ? r0 : r1;
+        const reserveUSDC  = isWethToken0 ? r1 : r0;
+
+        return (reserveUSDC * 1e12) / reserveWETH;
     }
 
-    // ─── GAS COST ESTIMATE ─────────────────────────────────────────────────────
+    // ─── GAS COST ──────────────────────────────────────────────────────────────
     async function fetchGasPrice(provider) {
         try {
             const feeData = await withTimeout(provider.getFeeData(), CONFIG.RPC_TIMEOUT_MS);
             const baseFee = feeData.gasPrice || feeData.maxFeePerGas;
-            if (baseFee) {
-                lastBaseFeeGwei = Number(baseFee) / 1e9;
-            }
-        } catch (_) {
-            // Keep last known value
-        }
+            if (baseFee) lastBaseFeeGwei = Number(baseFee) / 1e9;
+        } catch (_) {}
     }
 
     function calcGasCostUSD() {
-        return (lastBaseFeeGwei * 1e-9) * CONFIG.ESTIMATED_GAS_UNITS * CONFIG.ETH_PRICE_USD;
+        return lastBaseFeeGwei * 1e-9 * CONFIG.ESTIMATED_GAS_UNITS * CONFIG.ETH_PRICE_USD;
     }
 
-    // ─── ARBITRAGE CALC ────────────────────────────────────────────────────────
+    // ─── ARB CALCULATION ───────────────────────────────────────────────────────
     function calcArb(uniPrice, aeroPrice) {
-        const loan = CONFIG.LOAN_AMOUNT_USDC;
-        const slip = CONFIG.SLIPPAGE_PCT;
+        const loan     = CONFIG.LOAN_AMOUNT_USDC;
+        const slip     = CONFIG.SLIPPAGE_PCT;
+        const gas      = calcGasCostUSD();
+        const slipCost = loan * slip * 2;
 
-        // Direction 1: buy WETH on UNI (cheaper), sell on AERO (pricier)
-        // => UNI price lower means less USDC per WETH => we spend less to buy
-        // weth bought on uni = loan / uniPrice * (1 - slip)
-        // usdc received from aero = wethBought * aeroPrice * (1 - slip)
-        // gross = usdcReceived - loan
-        const d1WethBought = (loan / uniPrice) * (1 - slip);
-        const d1UsdcOut    = d1WethBought * aeroPrice * (1 - slip);
-        const d1Gross      = d1UsdcOut - loan;
+        const d1Weth  = (loan / uniPrice)  * (1 - slip);
+        const d1Out   = d1Weth * aeroPrice * (1 - slip);
+        const d1Net   = (d1Out - loan) - gas;
 
-        // Direction 2: buy WETH on AERO (cheaper), sell on UNI (pricier)
-        const d2WethBought = (loan / aeroPrice) * (1 - slip);
-        const d2UsdcOut    = d2WethBought * uniPrice * (1 - slip);
-        const d2Gross      = d2UsdcOut - loan;
+        const d2Weth  = (loan / aeroPrice) * (1 - slip);
+        const d2Out   = d2Weth * uniPrice  * (1 - slip);
+        const d2Net   = (d2Out - loan) - gas;
 
-        const gasCostUSD   = calcGasCostUSD();
-        const slipCostUSD  = loan * slip * 2; // both legs
-
-        const d1Net = d1Gross - gasCostUSD;
-        const d2Net = d2Gross - gasCostUSD;
-
-        if (d1Net >= d2Net && d1Net > -9999) {
+        if (d1Net >= d2Net) {
             return {
-                direction: 1,
-                label: "UNI→AERO",
-                buyPrice: uniPrice,
-                sellPrice: aeroPrice,
-                grossUSD: d1Gross,
-                slipCost: slipCostUSD,
-                gasCost: gasCostUSD,
-                netUSD: d1Net,
+                direction: 1, label: "UNI→AERO",
+                buyPrice: uniPrice, sellPrice: aeroPrice,
+                grossUSD: d1Out - loan, slipCost, gasCost: gas, netUSD: d1Net,
                 spreadPct: ((aeroPrice - uniPrice) / uniPrice) * 100
             };
         } else {
             return {
-                direction: 2,
-                label: "AERO→UNI",
-                buyPrice: aeroPrice,
-                sellPrice: uniPrice,
-                grossUSD: d2Gross,
-                slipCost: slipCostUSD,
-                gasCost: gasCostUSD,
-                netUSD: d2Net,
+                direction: 2, label: "AERO→UNI",
+                buyPrice: aeroPrice, sellPrice: uniPrice,
+                grossUSD: d2Out - loan, slipCost, gasCost: gas, netUSD: d2Net,
                 spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100
             };
         }
     }
 
-    // ─── UI UPDATES ────────────────────────────────────────────────────────────
+    // ─── UI UPDATE ─────────────────────────────────────────────────────────────
     function updateUI(uniPrice, aeroPrice, arb) {
-        // Pool prices
         document.getElementById("price-uni").textContent  = `$${uniPrice.toFixed(2)}`;
         document.getElementById("price-aero").textContent = `$${aeroPrice.toFixed(2)}`;
 
-        // Tags
         const tagUni  = document.getElementById("tag-uni");
         const tagAero = document.getElementById("tag-aero");
-        tagUni.className  = "p-tag mute";
-        tagAero.className = "p-tag mute";
+        tagUni.className = tagAero.className = "p-tag mute";
 
         if (arb.direction === 1) {
-            tagUni.textContent  = "BUY HERE";
-            tagUni.className    = "p-tag buy";
-            tagAero.textContent = "SELL HERE";
-            tagAero.className   = "p-tag sell";
+            tagUni.textContent  = "BUY HERE";  tagUni.className  = "p-tag buy";
+            tagAero.textContent = "SELL HERE"; tagAero.className = "p-tag sell";
         } else {
-            tagAero.textContent = "BUY HERE";
-            tagAero.className   = "p-tag buy";
-            tagUni.textContent  = "SELL HERE";
-            tagUni.className    = "p-tag sell";
+            tagAero.textContent = "BUY HERE";  tagAero.className = "p-tag buy";
+            tagUni.textContent  = "SELL HERE"; tagUni.className  = "p-tag sell";
         }
 
-        // Profit display
+        const netStr   = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
         const spreadEl = document.getElementById("spread-display");
-        const netStr   = arb.netUSD >= 0 ? `+$${arb.netUSD.toFixed(4)}` : `-$${Math.abs(arb.netUSD).toFixed(4)}`;
         spreadEl.textContent = netStr;
         spreadEl.className   = "profit-amount " + (arb.netUSD >= 0 ? "positive" : "negative");
 
@@ -462,21 +364,17 @@
 
         const netProfEl = document.getElementById("net-profit");
         netProfEl.textContent = `$${arb.netUSD.toFixed(4)}`;
-        netProfEl.className   = "n-val " + (arb.netUSD < 0 ? "neg" : "");
+        netProfEl.className   = "n-val" + (arb.netUSD < 0 ? " neg" : "");
 
         document.getElementById("arb-direction").textContent = arb.label;
-
-        // Arb box
-        document.getElementById("arb-dir").textContent    = arb.label;
-        document.getElementById("arb-spread").textContent = `${Math.abs(arb.spreadPct).toFixed(4)}%`;
-        document.getElementById("arb-buy").textContent    = `$${arb.buyPrice.toFixed(2)}`;
-        document.getElementById("arb-sell").textContent   = `$${arb.sellPrice.toFixed(2)}`;
+        document.getElementById("arb-dir").textContent       = arb.label;
+        document.getElementById("arb-spread").textContent    = `${Math.abs(arb.spreadPct).toFixed(4)}%`;
+        document.getElementById("arb-buy").textContent       = `$${arb.buyPrice.toFixed(2)}`;
+        document.getElementById("arb-sell").textContent      = `$${arb.sellPrice.toFixed(2)}`;
 
         const arbNetEl = document.getElementById("arb-net");
-        arbNetEl.textContent = arb.netUSD >= 0
-            ? `+$${arb.netUSD.toFixed(4)}`
-            : `-$${Math.abs(arb.netUSD).toFixed(4)}`;
-        arbNetEl.className = "arb-val " + (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : arb.netUSD < 0 ? "neg" : "alert");
+        arbNetEl.textContent = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
+        arbNetEl.className   = "arb-val " + (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD ? "pos" : arb.netUSD < 0 ? "neg" : "alert");
 
         const arbStatusEl = document.getElementById("arb-status");
         if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
@@ -487,19 +385,15 @@
             arbStatusEl.className   = "arb-val alert";
         }
 
-        // Store best
         bestDirection = arb.direction;
         bestNetUSD    = arb.netUSD;
 
-        // Enable/disable strike button
         const btn = document.getElementById("manual-strike-btn");
         if (walletConnected && !isStriking) {
-            btn.disabled = false;
-            if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
-                btn.textContent = `\u25BA STRIKE ${arb.label} (+$${arb.netUSD.toFixed(4)})`;
-            } else {
-                btn.textContent = `\u25BA MANUAL STRIKE (${arb.label})`;
-            }
+            btn.disabled    = false;
+            btn.textContent = arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD
+                ? `\u25BA STRIKE ${arb.label} (+$${arb.netUSD.toFixed(4)})`
+                : `\u25BA MANUAL STRIKE (${arb.label})`;
         }
     }
 
@@ -511,20 +405,25 @@
 
         const provider = getProvider();
 
-        try {
-            // Fetch prices & gas in parallel
-            const [uniPrice, aeroPrice] = await Promise.all([
-                getUniPrice(provider),
-                getAeroPrice(provider),
-                fetchGasPrice(provider)
-            ]);
+        const [uniResult, aeroResult] = await Promise.allSettled([
+            getUniPrice(provider),
+            getAeroPrice(provider)
+        ]);
 
-            // Fetch block number (non-blocking, best-effort)
-            provider.getBlockNumber().then(bn => {
-                document.getElementById("block-num").textContent = `BLOCK: ${bn}`;
-            }).catch(() => {});
+        if (uniResult.status === "rejected")
+            log(`Uni error: ${uniResult.reason?.message?.slice(0, 60)}`, "error");
+        if (aeroResult.status === "rejected")
+            log(`Aero error: ${aeroResult.reason?.message?.slice(0, 60)}`, "error");
 
-            const arb = calcArb(uniPrice, aeroPrice);
+        fetchGasPrice(provider);
+        provider.getBlockNumber()
+            .then(bn => { document.getElementById("block-num").textContent = `BLOCK: ${bn}`; })
+            .catch(() => {});
+
+        if (uniResult.status === "fulfilled" && aeroResult.status === "fulfilled") {
+            const uniPrice  = uniResult.value;
+            const aeroPrice = aeroResult.value;
+            const arb       = calcArb(uniPrice, aeroPrice);
             updateUI(uniPrice, aeroPrice, arb);
 
             if (arb.netUSD >= CONFIG.MIN_NET_PROFIT_USD) {
@@ -533,39 +432,32 @@
             } else {
                 document.getElementById("status-text").textContent = "MONITORING";
             }
-
-        } catch (e) {
-            log(`Scan error: ${e.message}`, "error");
-            document.getElementById("status-text").textContent = "RPC_ERROR";
-            rotateRpc(e.message.slice(0, 30));
-            // Reset pair addr on error so it re-resolves next tick
-            aeroPairAddr = null;
+        } else {
+            if (uniResult.status === "rejected" && aeroResult.status === "rejected")
+                rotateRpc("both feeds failed");
+            document.getElementById("status-text").textContent = "FEED_ERROR";
         }
 
-        // Schedule next scan
-        scanTimer = setTimeout(scan, CONFIG.SCAN_MS);
+        setTimeout(scan, CONFIG.SCAN_MS);
     }
 
     // ─── WALLET CONNECTION ─────────────────────────────────────────────────────
     async function connectWallet() {
-        if (!window.ethereum) {
-            log("No wallet detected (install MetaMask)", "error");
-            return;
-        }
+        if (!window.ethereum) { log("No wallet — install MetaMask", "error"); return; }
         try {
             const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-            if (!accounts || accounts.length === 0) throw new Error("No accounts returned");
+            if (!accounts || !accounts.length) throw new Error("No accounts");
 
             const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
             if (parseInt(chainIdHex, 16) !== BASE_CHAIN_ID) {
-                log("Wrong network — switching to Base...", "info");
+                log("Switching to Base mainnet...", "info");
                 try {
                     await window.ethereum.request({
                         method: "wallet_switchEthereumChain",
                         params: [{ chainId: BASE_CHAIN_ID_HEX }]
                     });
-                } catch (switchErr) {
-                    if (switchErr.code === 4902) {
+                } catch (sw) {
+                    if (sw.code === 4902) {
                         await window.ethereum.request({
                             method: "wallet_addEthereumChain",
                             params: [{
@@ -576,133 +468,109 @@
                                 blockExplorerUrls: ["https://basescan.org"]
                             }]
                         });
-                    } else throw switchErr;
+                    } else throw sw;
                 }
             }
 
             const web3Provider = new ethers.BrowserProvider(window.ethereum);
-            walletSigner = await web3Provider.getSigner();
-            const addr = await walletSigner.getAddress();
+            walletSigner       = await web3Provider.getSigner();
+            const addr         = await walletSigner.getAddress();
 
             walletConnected = true;
-            document.getElementById("wallet-addr").textContent =
-                addr.slice(0, 6) + "..." + addr.slice(-4);
+            document.getElementById("wallet-addr").textContent    = addr.slice(0,6) + "..." + addr.slice(-4);
             document.getElementById("network-status").textContent = "BASE_MAINNET";
             document.getElementById("network-status").classList.add("ok");
 
-            const btn = document.getElementById("manual-strike-btn");
-            btn.disabled = false;
+            const btn       = document.getElementById("manual-strike-btn");
+            btn.disabled    = false;
             btn.textContent = "\u25BA MANUAL STRIKE";
-            log(`Wallet connected: ${addr.slice(0, 10)}...`, "success");
+            log(`Wallet connected: ${addr.slice(0,10)}...`, "success");
         } catch (e) {
             log(`Wallet error: ${e.message}`, "error");
         }
     }
 
-    // ─── STRIKE EXECUTION ──────────────────────────────────────────────────────
+    // ─── STRIKE ────────────────────────────────────────────────────────────────
     async function executeStrike() {
         if (isStriking || !walletConnected || !walletSigner) return;
         isStriking = true;
 
         const btn = document.getElementById("manual-strike-btn");
-        btn.disabled = true;
+        btn.disabled    = true;
         btn.classList.add("striking");
         btn.textContent = "EXECUTING...";
 
         try {
-            const dir = bestDirection || 1;
+            const dir     = bestDirection || 1;
             const loanAmt = BigInt(CONFIG.LOAN_AMOUNT_USDC) * BigInt(10 ** CONFIG.USDC_DECIMALS);
-
-            log(`Strike initiated: direction=${dir} amount=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
+            log(`Strike: direction=${dir} loan=${CONFIG.LOAN_AMOUNT_USDC} USDC`, "strike");
             document.getElementById("status-text").textContent = "SIMULATING...";
 
             const contract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
 
-            // Simulate first via eth_call
             try {
                 await contract.strike.staticCall(dir, loanAmt);
                 log("Simulation OK — submitting tx...", "info");
             } catch (simErr) {
-                log(`Simulation FAILED: ${simErr.message.slice(0, 80)}`, "error");
+                log(`Simulation FAILED: ${simErr.message.slice(0,80)}`, "error");
                 document.getElementById("status-text").textContent = "SIM_FAILED";
-                isStriking = false;
-                btn.disabled = false;
-                btn.classList.remove("striking");
-                btn.textContent = "\u25BA MANUAL STRIKE";
                 return;
             }
 
             document.getElementById("status-text").textContent = "SUBMITTING TX...";
             const tx = await contract.strike(dir, loanAmt);
-            log(`TX sent: ${tx.hash.slice(0, 20)}...`, "strike");
+            log(`TX sent: ${tx.hash.slice(0,20)}...`, "strike");
 
             document.getElementById("status-text").textContent = "AWAITING CONFIRM...";
             const receipt = await tx.wait(1);
 
             if (receipt && receipt.status === 1) {
-                log(`TX CONFIRMED: ${receipt.hash.slice(0, 20)}... block=${receipt.blockNumber}`, "success");
+                log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber}`, "success");
                 document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
             } else {
-                log(`TX REVERTED: ${receipt?.hash?.slice(0, 20)}`, "error");
+                log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
                 document.getElementById("status-text").textContent = "TX_REVERTED";
             }
-
         } catch (e) {
-            log(`Strike error: ${e.message.slice(0, 100)}`, "error");
+            log(`Strike error: ${e.message.slice(0,100)}`, "error");
             document.getElementById("status-text").textContent = "STRIKE_ERROR";
         } finally {
-            isStriking = false;
+            isStriking      = false;
             btn.classList.remove("striking");
-            btn.disabled = !walletConnected;
+            btn.disabled    = !walletConnected;
             btn.textContent = "\u25BA MANUAL STRIKE";
         }
     }
 
     // ─── INIT ──────────────────────────────────────────────────────────────────
     async function init() {
-        // Set initial RPC label
-        document.getElementById("rpc-indicator").textContent =
-            `RPC: ${CONFIG.RPCs[currentRpc].replace("https://", "").split("/")[0]}`;
+        const host = CONFIG.RPCs[currentRpc].replace("https://","").split("/")[0];
+        document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
 
-        // Check if wallet already connected (e.g. page refresh)
         if (window.ethereum) {
             try {
                 const accounts = await window.ethereum.request({ method: "eth_accounts" });
-                if (accounts && accounts.length > 0) {
-                    await connectWallet();
-                } else {
-                    document.getElementById("network-status").textContent = "WALLET_NOT_CONNECTED";
-                    log("No wallet connected — click MANUAL STRIKE to connect", "info");
-                }
+                if (accounts && accounts.length) await connectWallet();
+                else document.getElementById("network-status").textContent = "WALLET_DISCONNECTED";
             } catch (_) {
-                document.getElementById("network-status").textContent = "CHECK_WALLET";
+                document.getElementById("network-status").textContent = "WALLET_ERROR";
             }
-        } else {
-            document.getElementById("network-status").textContent = "NO_WALLET";
-            log("MetaMask not detected — read-only mode", "info");
-        }
-
-        // Listen for account/chain changes
-        if (window.ethereum) {
             window.ethereum.on("accountsChanged", () => location.reload());
             window.ethereum.on("chainChanged",    () => location.reload());
+        } else {
+            document.getElementById("network-status").textContent = "NO_WALLET";
+            log("No wallet — read-only mode", "info");
         }
 
-        // Strike button
         document.getElementById("manual-strike-btn").addEventListener("click", async () => {
-            if (!walletConnected) {
-                await connectWallet();
-            } else {
-                await executeStrike();
-            }
+            if (!walletConnected) await connectWallet();
+            else await executeStrike();
         });
 
-        // Start scanning
-        log("Scanner started — monitoring USDC/WETH on UNI + AERO", "success");
-        await scan();
+        log("Scanner started — UNI V3 + AERO vAMM WETH/USDC on Base", "success");
+        scan();
     }
 
-    // Boot
     init().catch(e => log(`Init error: ${e.message}`, "error"));
     </script>
 </body>
