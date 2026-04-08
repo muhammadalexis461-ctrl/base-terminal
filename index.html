@@ -185,8 +185,8 @@
             "https://base.llamarpc.com",
             "https://1rpc.io/base",
         ],
-        UNI_POOL:   "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_POOL:  "0xcDAC0d6c6C59727a65F871236188350531885C43",
+        UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+        AERO_POOL:           "0xcDAC0d6c6C59727a65F871236188350531885C43",
         BOT_CONTRACT:        "0x8b378bb4d7Fc5e0902Cb123f2176e9095BAa75A5",
         WETH:                "0x4200000000000000000000000000000000000006",
         USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -411,13 +411,25 @@
         return Math.max(0, Math.ceil(remaining / 1000));
     }
 
-    async function simulateWithAdaptiveLoan(contract, direction) {
+    // FIX: Use a plain JsonRpcProvider for staticCall simulation instead of
+    // the walletSigner (BrowserProvider). MetaMask intercepts eth_call when
+    // routed through BrowserProvider and returns data=null for complex calls,
+    // causing the "missing revert data" error. The simulation only needs to
+    // read state — no signing required — so a public RPC provider is correct.
+    async function simulateWithAdaptiveLoan(direction) {
+        // Build a read-only contract connected to the current public RPC node
+        const simProvider = getProvider();
+        const simContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, simProvider);
+
         for (let i = 0; i < CONFIG.LOAN_STEPS.length; i++) {
             const loanUsdc = CONFIG.LOAN_STEPS[i];
             const loanAmt  = BigInt(loanUsdc) * BigInt(10 ** CONFIG.USDC_DECIMALS);
 
             try {
-                await contract.strike.staticCall(direction, loanAmt);
+                // staticCall through public RPC — no MetaMask interception
+                await simContract.strike.staticCall(direction, loanAmt, {
+                    from: await walletSigner.getAddress()
+                });
                 log(`Simulation OK at ${loanUsdc} USDC loan`, "success");
                 activeLoanAmount = loanUsdc;
                 consecutiveFails = 0;
@@ -427,11 +439,37 @@
                 const isPriceImpact = errMsg.toLowerCase().includes("price impact") ||
                                       errMsg.toLowerCase().includes("too high") ||
                                       errMsg.toLowerCase().includes("slippage") ||
-                                      errMsg.toLowerCase().includes("insufficient output");
+                                      errMsg.toLowerCase().includes("insufficient output") ||
+                                      errMsg.toLowerCase().includes("unprofitable") ||
+                                      errMsg.toLowerCase().includes("profit below");
 
                 if (isPriceImpact && i < CONFIG.LOAN_STEPS.length - 1) {
                     log(`Sim failed at ${loanUsdc} USDC (price impact) -> trying ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
                     continue;
+                }
+
+                // If this is a generic RPC/call error (data=null), try rotating RPC once
+                const isRpcError = errMsg.toLowerCase().includes("missing revert data") ||
+                                   errMsg.toLowerCase().includes("data=null") ||
+                                   errMsg.toLowerCase().includes("network") ||
+                                   errMsg.toLowerCase().includes("timeout");
+
+                if (isRpcError && i === 0) {
+                    rotateRpc("sim RPC error");
+                    const retryProvider = getProvider();
+                    const retryContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, retryProvider);
+                    try {
+                        await retryContract.strike.staticCall(direction, loanAmt, {
+                            from: await walletSigner.getAddress()
+                        });
+                        log(`Simulation OK at ${loanUsdc} USDC loan (retry RPC)`, "success");
+                        activeLoanAmount = loanUsdc;
+                        consecutiveFails = 0;
+                        return { success: true, loanUsdc, loanAmt };
+                    } catch (retryErr) {
+                        log(`Simulation FAILED at ${loanUsdc} USDC: ${(retryErr.message || "").slice(0, 80)}`, "error");
+                        return { success: false, loanUsdc, error: retryErr.message || "Sim failed" };
+                    }
                 }
 
                 log(`Simulation FAILED at ${loanUsdc} USDC: ${errMsg.slice(0, 80)}`, "error");
@@ -462,9 +500,7 @@
             log(`Strike: direction=${dir} — adaptive loan sizing`, "strike");
             document.getElementById("status-text").textContent = "SIMULATING...";
 
-            const contract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
-
-            const simResult = await simulateWithAdaptiveLoan(contract, dir);
+            const simResult = await simulateWithAdaptiveLoan(dir);
 
             if (!simResult.success) {
                 consecutiveFails++;
@@ -472,7 +508,13 @@
 
                 if (consecutiveFails >= CONFIG.MAX_SIM_RETRIES) {
                     log(`${consecutiveFails} consecutive sim failures — increasing cooldown`, "error");
-                    lastStrikeTime = Date.now() + (CONFIG.STRIKE_COOLDOWN_MS * 2);
+                    // FIX: extend cooldown from NOW, not from the future.
+                    // Previous bug: lastStrikeTime = Date.now() + COOLDOWN*2 caused the
+                    // isCooldownActive check to think we are still mid-cooldown for 2x longer,
+                    // but actually set lastStrikeTime ahead of now which broke the math.
+                    lastStrikeTime = Date.now();
+                    CONFIG.STRIKE_COOLDOWN_MS = Math.min(CONFIG.STRIKE_COOLDOWN_MS * 2, 120000);
+                    log(`Cooldown extended to ${CONFIG.STRIKE_COOLDOWN_MS / 1000}s`, "info");
                 }
                 return;
             }
@@ -487,7 +529,9 @@
             document.getElementById("status-text").textContent = "SUBMITTING TX...";
             log(`Submitting tx: direction=${dir} loan=${simResult.loanUsdc} USDC`, "strike");
 
-            const tx = await contract.strike(dir, simResult.loanAmt, {
+            // Use walletSigner for actual transaction submission (requires MetaMask signing)
+            const signerContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
+            const tx = await signerContract.strike(dir, simResult.loanAmt, {
                 gasLimit: BigInt(CONFIG.ESTIMATED_GAS_UNITS + 50000)
             });
             log(`TX sent: ${tx.hash.slice(0,20)}...`, "strike");
@@ -499,15 +543,24 @@
                 log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber} loan=${simResult.loanUsdc} USDC`, "success");
                 document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
                 consecutiveFails = 0;
+                // Reset cooldown to base on success
+                CONFIG.STRIKE_COOLDOWN_MS = 15000;
             } else {
                 log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
                 document.getElementById("status-text").textContent = "TX_REVERTED";
                 consecutiveFails++;
             }
         } catch (e) {
-            log(`Strike error: ${e.message.slice(0,100)}`, "error");
-            document.getElementById("status-text").textContent = "STRIKE_ERROR";
-            consecutiveFails++;
+            const errMsg = e.message || "";
+            // User rejected MetaMask popup — don't count as failure
+            if (errMsg.includes("user rejected") || errMsg.includes("ACTION_REJECTED") || e.code === 4001) {
+                log(`TX cancelled by user`, "info");
+                document.getElementById("status-text").textContent = "TX_CANCELLED";
+            } else {
+                log(`Strike error: ${errMsg.slice(0,100)}`, "error");
+                document.getElementById("status-text").textContent = "STRIKE_ERROR";
+                consecutiveFails++;
+            }
         } finally {
             isStriking      = false;
             btn.classList.remove("striking");
@@ -611,7 +664,11 @@
             log(`Wallet connected: ${addr.slice(0,10)}...`, "success");
             log(`Auto-strike: ${autoStrikeEnabled ? "ENABLED" : "DISABLED"}`, "info");
         } catch (e) {
-            log(`Wallet error: ${e.message}`, "error");
+            if (e.code === 4001 || (e.message && e.message.includes("user rejected"))) {
+                log(`Wallet connection rejected by user`, "info");
+            } else {
+                log(`Wallet error: ${e.message}`, "error");
+            }
         }
     }
 
@@ -651,6 +708,7 @@
         log("Scanner started -- UNI V3 + AERO vAMM WETH/USDC on Base", "success");
         log("Auto-strike ENABLED -- will fire when net >= $1.00", "info");
         log("Adaptive loan sizing: steps down from 3000 to 100 USDC on price impact errors", "info");
+        log("FIX: Simulation uses public RPC (not MetaMask) to avoid missing revert data error", "info");
         scan();
     }
 
