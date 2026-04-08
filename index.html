@@ -170,7 +170,7 @@
     <div class="log-box" id="logs"></div>
     <div class="footer-note">
         TWO-WAY DIRECTIONAL: Borrow USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
-        Auto-selects best direction &middot; Adaptive loan sizing (steps down on price impact) &middot; eth_call simulation first &middot; Fires when NET &ge; $1.00 after gas + slippage
+        Auto-selects best direction &middot; Adaptive loan sizing (steps down on any revert) &middot; eth_call simulation first &middot; Fires when NET &ge; $1.00 after gas + slippage
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
@@ -276,38 +276,29 @@
     }
 
     async function getAeroPrice(provider) {
-        // Inner fetch — may throw on bad RPC
         async function fetchFromProvider(p) {
             const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_POOL_ABI, p);
-
             if (!aeroToken0) {
                 aeroToken0 = (await withTimeout(pool.token0(), CONFIG.RPC_TIMEOUT_MS)).toLowerCase();
             }
-
             const reserves = await withTimeout(pool.getReserves(), CONFIG.RPC_TIMEOUT_MS);
             const r0 = Number(reserves[0]);
             const r1 = Number(reserves[1]);
-
             if (r0 === 0 || r1 === 0) throw new Error("Aerodrome: zero reserves");
-
             const isWethToken0 = aeroToken0 === CONFIG.WETH.toLowerCase();
             const reserveWETH  = isWethToken0 ? r0 : r1;
             const reserveUSDC  = isWethToken0 ? r1 : r0;
-
             return (reserveUSDC * 1e12) / reserveWETH;
         }
-
         try {
             return await fetchFromProvider(provider);
         } catch (err) {
             const msg = (err.message || "").toLowerCase();
-            // If the RPC returned null data (bad node), rotate and retry once
-            const isNullDataErr = msg.includes("missing revert data") ||
-                                  msg.includes("data=null") ||
-                                  msg.includes("could not decode") ||
-                                  msg.includes("network");
-            if (isNullDataErr) {
-                rotateRpc("Aero feed null-data");
+            const isNodeErr = msg.includes("missing revert data") || msg.includes("data=null") ||
+                              msg.includes("could not decode") || msg.includes("network") ||
+                              msg.includes("timeout");
+            if (isNodeErr) {
+                rotateRpc("Aero feed error");
                 return await fetchFromProvider(getProvider());
             }
             throw err;
@@ -430,9 +421,12 @@
         return Math.max(0, Math.ceil(remaining / 1000));
     }
 
-    // Simulation uses a plain JsonRpcProvider — NOT walletSigner/BrowserProvider.
-    // MetaMask intercepts eth_call through BrowserProvider and returns data=null.
-    // Public RPC gives us the real on-chain revert and lets us step down loan sizes.
+    // KEY FIX: simulation uses plain JsonRpcProvider, NOT BrowserProvider/MetaMask.
+    // MetaMask intercepts eth_call and returns data=null for complex flash-loan calls.
+    // Public RPC gives us real on-chain reverts so adaptive step-down works correctly.
+    //
+    // NEW LOGIC: any on-chain revert at a given loan size => step down to smaller size.
+    // Only hard-fail on: (1) network/transport errors (rotate RPC, retry), (2) wrong wallet.
     async function simulateWithAdaptiveLoan(direction) {
         const ownerAddr = await walletSigner.getAddress();
 
@@ -440,7 +434,6 @@
             const loanUsdc = CONFIG.LOAN_STEPS[i];
             const loanAmt  = BigInt(loanUsdc) * BigInt(10 ** CONFIG.USDC_DECIMALS);
 
-            // Fresh public-RPC provider per step so a mid-loop rotate is respected
             const simProvider = getProvider();
             const simContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, simProvider);
 
@@ -451,75 +444,44 @@
                 consecutiveFails = 0;
                 return { success: true, loanUsdc, loanAmt };
             } catch (simErr) {
-                const errMsg = simErr.message || "";
-                const lower  = errMsg.toLowerCase();
+                const errMsg  = simErr.message || simErr.toString() || "";
+                const lower   = errMsg.toLowerCase();
+                const errCode = simErr.code || "";
 
-                // ── Category 1: named contract revert — trade not profitable at this size
-                const isContractReject =
-                    lower.includes("price impact")        ||
-                    lower.includes("too high")            ||
-                    lower.includes("slippage")            ||
-                    lower.includes("insufficient output") ||
-                    lower.includes("unprofitable")        ||
-                    lower.includes("profit below")        ||
-                    lower.includes("zero price");
+                // Network/transport error — rotate RPC and retry the SAME loan size
+                const isNetworkErr =
+                    errCode === "NETWORK_ERROR"       ||
+                    lower.includes("timeout")         ||
+                    lower.includes("econnrefused")    ||
+                    lower.includes("failed to fetch") ||
+                    lower.includes("network error");
 
-                // ── Category 2: DEX router blind-revert (no message string) ────────────
-                // Uniswap and Aerodrome often revert without a message when slippage
-                // exceeds tolerance. Ethers reports this as "execution reverted" with
-                // "no data present". Treat as a size step-down, NOT a hard failure.
-                const isBlindRevert =
-                    lower.includes("no data present")    ||
-                    (lower.includes("execution reverted") && !lower.includes("reason="));
-
-                if ((isContractReject || isBlindRevert) && i < CONFIG.LOAN_STEPS.length - 1) {
-                    log(`Sim: ${loanUsdc} USDC reverted (swap/profit) -> stepping to ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
+                if (isNetworkErr) {
+                    rotateRpc("sim transport error");
+                    log(`Sim: transport error at ${loanUsdc} USDC, retrying on new RPC...`, "info");
+                    i--;  // retry same index
                     continue;
                 }
 
-                // If every loan size blind-reverted, report it cleanly
-                if ((isContractReject || isBlindRevert) && i === CONFIG.LOAN_STEPS.length - 1) {
-                    log(`All loan sizes unprofitable on-chain — spread too thin`, "error");
-                    return { success: false, loanUsdc, error: "All sizes unprofitable on-chain" };
+                // Wrong wallet — no loan size will fix this, abort immediately
+                if (lower.includes("only owner")) {
+                    log(`CRITICAL: contract owner mismatch — connect the correct wallet`, "error");
+                    return { success: false, loanUsdc, error: "Only Owner — wrong wallet" };
                 }
 
-                // ── Category 3: RPC-level null-data (bad node) — rotate and retry same size
-                const isRpcNull =
-                    lower.includes("missing revert data") ||
-                    lower.includes("data=null")           ||
-                    lower.includes("network")             ||
-                    lower.includes("timeout");
-
-                if (isRpcNull) {
-                    rotateRpc("sim RPC null-data");
-                    const retryProvider = getProvider();
-                    const retryContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, retryProvider);
-                    try {
-                        await retryContract.strike.staticCall(direction, loanAmt, { from: ownerAddr });
-                        log(`Simulation OK at ${loanUsdc} USDC (after RPC rotate)`, "success");
-                        activeLoanAmount = loanUsdc;
-                        consecutiveFails = 0;
-                        return { success: true, loanUsdc, loanAmt };
-                    } catch (retryErr) {
-                        const rl = (retryErr.message || "").toLowerCase();
-                        const retryBlind = rl.includes("no data present") ||
-                                           (rl.includes("execution reverted") && !rl.includes("reason="));
-                        if (retryBlind && i < CONFIG.LOAN_STEPS.length - 1) {
-                            log(`Sim: ${loanUsdc} USDC blind-revert after rotate -> stepping to ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
-                            continue;
-                        }
-                        log(`Simulation FAILED at ${loanUsdc} USDC: ${(retryErr.message || "").slice(0, 80)}`, "error");
-                        return { success: false, loanUsdc, error: retryErr.message || "Sim failed" };
-                    }
+                // Any other revert (named reason, empty data, DEX router reject, etc.)
+                // => the trade isn't viable at this size, try smaller
+                if (i < CONFIG.LOAN_STEPS.length - 1) {
+                    log(`Sim: ${loanUsdc} USDC reverted -> stepping to ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
+                    continue;
                 }
 
-                // ── Category 4: unexpected hard error — log and abort ────────────────
-                log(`Simulation FAILED at ${loanUsdc} USDC: ${errMsg.slice(0, 80)}`, "error");
-                return { success: false, loanUsdc, error: errMsg };
+                // All sizes exhausted
+                log(`All loan sizes reverted — spread too thin on-chain`, "error");
+                return { success: false, loanUsdc, error: "All sizes unprofitable on-chain" };
             }
         }
 
-        log(`All loan sizes failed simulation — spread too thin on-chain`, "error");
         return { success: false, loanUsdc: 0, error: "All loan sizes unprofitable on-chain" };
     }
 
@@ -552,8 +514,8 @@
                     (simResult.error || "").toLowerCase().includes("spread too thin");
 
                 if (isMarketCondition) {
-                    // Market just isn't profitable enough at any size — not a system error,
-                    // don't increment consecutiveFails, just reset cooldown and wait.
+                    // Normal market condition — spread too thin for any loan size
+                    // Don't count as a system failure, just wait for next opportunity
                     document.getElementById("status-text").textContent = "SPREAD_TOO_THIN";
                     lastStrikeTime = Date.now();
                     return;
@@ -563,7 +525,7 @@
                 document.getElementById("status-text").textContent = "SIM_FAILED";
 
                 if (consecutiveFails >= CONFIG.MAX_SIM_RETRIES) {
-                    log(`${consecutiveFails} consecutive sim failures — increasing cooldown`, "error");
+                    log(`${consecutiveFails} consecutive sim failures — backing off`, "error");
                     lastStrikeTime = Date.now();
                     CONFIG.STRIKE_COOLDOWN_MS = Math.min(CONFIG.STRIKE_COOLDOWN_MS * 2, 120000);
                     log(`Cooldown extended to ${CONFIG.STRIKE_COOLDOWN_MS / 1000}s`, "info");
@@ -581,7 +543,7 @@
             document.getElementById("status-text").textContent = "SUBMITTING TX...";
             log(`Submitting tx: direction=${dir} loan=${simResult.loanUsdc} USDC`, "strike");
 
-            // Use walletSigner for actual transaction submission (requires MetaMask signing)
+            // Actual tx submission uses the wallet signer (MetaMask signs here)
             const signerContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
             const tx = await signerContract.strike(dir, simResult.loanAmt, {
                 gasLimit: BigInt(CONFIG.ESTIMATED_GAS_UNITS + 50000)
@@ -595,8 +557,7 @@
                 log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber} loan=${simResult.loanUsdc} USDC`, "success");
                 document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
                 consecutiveFails = 0;
-                // Reset cooldown to base on success
-                CONFIG.STRIKE_COOLDOWN_MS = 15000;
+                CONFIG.STRIKE_COOLDOWN_MS = 15000;  // reset cooldown on success
             } else {
                 log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
                 document.getElementById("status-text").textContent = "TX_REVERTED";
@@ -604,7 +565,6 @@
             }
         } catch (e) {
             const errMsg = e.message || "";
-            // User rejected MetaMask popup — don't count as failure
             if (errMsg.includes("user rejected") || errMsg.includes("ACTION_REJECTED") || e.code === 4001) {
                 log(`TX cancelled by user`, "info");
                 document.getElementById("status-text").textContent = "TX_CANCELLED";
@@ -759,8 +719,7 @@
 
         log("Scanner started -- UNI V3 + AERO vAMM WETH/USDC on Base", "success");
         log("Auto-strike ENABLED -- will fire when net >= $1.00", "info");
-        log("Adaptive loan sizing: steps down from 3000 to 100 USDC on price impact errors", "info");
-        log("FIX: Simulation uses public RPC (not MetaMask) to avoid missing revert data error", "info");
+        log("Adaptive sim: any revert steps down loan size (3000->2000->1500->...->100 USDC)", "info");
         scan();
     }
 
