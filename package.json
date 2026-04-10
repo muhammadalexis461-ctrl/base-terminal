@@ -1,1 +1,14 @@
-
+{
+  "name": "base-arb-bot-v4",
+  "version": "1.0.0",
+  "description": "Automated Arbitrage Bot for Base",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "ethers": "^6.11.1",
+    "dotenv": "^16.4.5",
+    "axios": "^1.6.7"
+  }
+}
