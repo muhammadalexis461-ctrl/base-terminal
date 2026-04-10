@@ -1,4 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Base Arb Bot</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black text-white">
+    <div id="root"></div>
+    <script type="text/babel">
+      import { useState, useEffect, useCallback } from "react";
 import { useArbScanner } from "@/hooks/use-arb-scanner";
 import { setCustomRpc, isPrivateRpc, getRpcUrl } from "@/lib/ethers-provider";
 import { simulateWithTenderly } from "@/lib/scanner";
@@ -82,7 +95,7 @@ export default function Dashboard() {
       const chainId = await window.ethereum.request({ method: "eth_chainId" });
       if (parseInt(chainId, 16) === BASE_CHAIN_ID) {
         setNetworkOk(true);
-        scanner.addLog("NETWORK: BASE_MAINNET (8453) ✓", "success");
+        scanner.addLog("NETWORK: BASE_MAINNET (8453) ?", "success");
       } else {
         setNetworkOk(false);
         scanner.addLog("WRONG_NETWORK — Switching to Base...", "warning");
@@ -435,7 +448,7 @@ export default function Dashboard() {
               className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.7rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
             >
               <option value={0}>LST Soft-Peg (WETH/cbETH)</option>
-              <option value={1}>Triangular (WETH→USDC→cbETH→WETH)</option>
+              <option value={1}>Triangular (WETH?USDC?cbETH?WETH)</option>
             </select>
           </div>
         </div>
@@ -666,3 +679,6 @@ export default function Dashboard() {
     </div>
   );
 }
+    </script>
+</body>
+</html>
