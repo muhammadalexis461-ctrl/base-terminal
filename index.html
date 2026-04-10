@@ -1,742 +1,668 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>ARB_V2 | BASE MAINNET | USDC</title>
-    <style>
-        :root {
-            --green: #00ff41;
-            --dim-green: #00aa28;
-            --yellow: #ffe600;
-            --red: #ff3c3c;
-            --bg: #050505;
-            --surface: #0a0a0a;
-            --border: #1a2e1a;
+import { useState, useEffect, useCallback } from "react";
+import { useArbScanner } from "@/hooks/use-arb-scanner";
+import { setCustomRpc, isPrivateRpc, getRpcUrl } from "@/lib/ethers-provider";
+import { simulateWithTenderly } from "@/lib/scanner";
+import {
+  STRATEGY_LABELS,
+  MIN_SPREAD_PERCENT,
+  GAS_PAUSE_THRESHOLD_GWEI,
+  MIN_NET_PROFIT_USD,
+  BASE_CHAIN_ID,
+  BASE_CHAIN_HEX,
+  TOKENS,
+} from "@/lib/constants";
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
+const LS = {
+  contract: "arb_contractAddress",
+  rpc: "arb_privateRpc",
+  tradeSize: "arb_tradeSizeEth",
+  tKey: "arb_tenderlyKey",
+  tAccount: "arb_tenderlyAccount",
+  tProject: "arb_tenderlyProject",
+};
+
+function lsGet(key: string, fallback: string): string {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+function lsSet(key: string, val: string) {
+  try { localStorage.setItem(key, val); } catch {}
+}
+function lsClear(keys: string[]) {
+  try { keys.forEach((k) => localStorage.removeItem(k)); } catch {}
+}
+
+export default function Dashboard() {
+  const [walletAddress, setWalletAddress] = useState<string>("");
+  const [networkOk, setNetworkOk] = useState(false);
+  const [contractAddress, setContractAddress] = useState(() => lsGet(LS.contract, ""));
+  const [privateRpc, setPrivateRpc] = useState(() => lsGet(LS.rpc, ""));
+  const [tenderlyKey, setTenderlyKey] = useState(() => lsGet(LS.tKey, ""));
+  const [tenderlyAccount, setTenderlyAccount] = useState(() => lsGet(LS.tAccount, ""));
+  const [tenderlyProject, setTenderlyProject] = useState(() => lsGet(LS.tProject, ""));
+  const [tradeSizeEth, setTradeSizeEth] = useState(() => parseFloat(lsGet(LS.tradeSize, "1.2")) || 1.2);
+  const [ethPriceUsd, setEthPriceUsd] = useState(2500);
+  const [isStriking, setIsStriking] = useState(false);
+  const [simResult, setSimResult] = useState<string>("");
+  const [selectedStrategy, setSelectedStrategy] = useState(0);
+
+  const scanner = useArbScanner(tradeSizeEth, ethPriceUsd);
+
+  useEffect(() => { lsSet(LS.contract, contractAddress); }, [contractAddress]);
+  useEffect(() => { lsSet(LS.rpc, privateRpc); }, [privateRpc]);
+  useEffect(() => { lsSet(LS.tradeSize, String(tradeSizeEth)); }, [tradeSizeEth]);
+  useEffect(() => { lsSet(LS.tKey, tenderlyKey); }, [tenderlyKey]);
+  useEffect(() => { lsSet(LS.tAccount, tenderlyAccount); }, [tenderlyAccount]);
+  useEffect(() => { lsSet(LS.tProject, tenderlyProject); }, [tenderlyProject]);
+
+  useEffect(() => {
+    const saved = lsGet(LS.rpc, "");
+    if (saved) {
+      setCustomRpc(saved);
+      scanner.addLog(`AUTO_LOADED RPC: ${saved.slice(0, 30)}...`, "info");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connectWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      scanner.addLog("NO_WALLET — Install MetaMask", "error");
+      return;
+    }
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      setWalletAddress(accounts[0]);
+      scanner.addLog(`WALLET_CONNECTED: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`, "success");
+
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      if (parseInt(chainId, 16) === BASE_CHAIN_ID) {
+        setNetworkOk(true);
+        scanner.addLog("NETWORK: BASE_MAINNET (8453) ✓", "success");
+      } else {
+        setNetworkOk(false);
+        scanner.addLog("WRONG_NETWORK — Switching to Base...", "warning");
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: BASE_CHAIN_HEX }],
+          });
+          setNetworkOk(true);
+        } catch {
+          scanner.addLog("FAILED to switch to Base network", "error");
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: var(--bg); color: var(--green);
-            font-family: 'Courier New', monospace;
-            display: flex; flex-direction: column; align-items: center;
-            padding: 24px 12px; min-height: 100vh;
-        }
-        h1 { font-size: 1.1rem; letter-spacing: 0.15em; margin-bottom: 6px; text-shadow: 0 0 8px var(--green); }
-        .subtitle { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 20px; }
-        .network-badge {
-            width: 100%; max-width: 720px; text-align: center;
-            font-size: 0.7rem; padding: 6px 12px; margin-bottom: 14px;
-            border: 1px solid var(--border); background: var(--surface);
-        }
-        #network-status { color: var(--red); font-weight: bold; }
-        #network-status.ok { color: var(--green); }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; margin-bottom: 16px; }
-        .panel { border: 1px solid var(--border); background: var(--surface); padding: 16px; }
-        .panel-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-        .data-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 0.78rem; }
-        .data-row .label { color: #4a7a4a; } .data-row .value { color: var(--green); font-weight: bold; }
-        .profit-display { border: 1px solid var(--border); background: var(--surface); padding: 20px; text-align: center; margin-bottom: 16px; width: 100%; max-width: 720px; }
-        .profit-label { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 8px; }
-        .profit-amount { font-size: 3rem; font-weight: bold; color: #fff; text-shadow: 0 0 16px var(--green); }
-        .profit-amount.positive { color: var(--green); } .profit-amount.negative { color: var(--red); }
-        .net-profit-row { display: flex; justify-content: center; gap: 24px; margin-top: 10px; font-size: 0.72rem; flex-wrap: wrap; }
-        .net-item { text-align: center; }
-        .net-item .n-label { color: #4a7a4a; display: block; }
-        .net-item .n-val { color: var(--green); font-weight: bold; }
-        .net-item .n-val.alert { color: var(--yellow); } .net-item .n-val.neg { color: var(--red); }
-        .status-bar { width: 100%; max-width: 720px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.65rem; margin-bottom: 16px; }
-        #status-text { color: var(--yellow); letter-spacing: 0.15em; }
-        #rpc-indicator { color: var(--dim-green); }
-        #tick-counter { color: #3a5a3a; }
-        .pool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 720px; margin-bottom: 16px; }
-        .pool-card { border: 1px solid var(--border); background: var(--surface); padding: 12px; text-align: center; font-size: 0.7rem; }
-        .pool-card .p-name { color: var(--dim-green); letter-spacing: 0.1em; margin-bottom: 4px; }
-        .pool-card .p-price { color: var(--green); font-size: 1.1rem; font-weight: bold; }
-        .pool-card .p-tag { font-size: 0.6rem; margin-top: 4px; }
-        .pool-card .p-tag.buy { color: #00cc33; } .pool-card .p-tag.sell { color: var(--yellow); }
-        .pool-card .p-tag.mute { color: #3a5a3a; }
-        .log-box { width: 100%; max-width: 720px; height: 160px; background: #080808; border: 1px solid var(--border); overflow-y: scroll; font-size: 0.65rem; text-align: left; padding: 10px; color: var(--dim-green); margin-bottom: 16px; }
-        .log-box .log-entry { margin-bottom: 2px; }
-        .log-box .log-entry.strike { color: var(--yellow); } .log-box .log-entry.success { color: var(--green); }
-        .log-box .log-entry.error { color: var(--red); } .log-box .log-entry.info { color: var(--dim-green); }
-        .footer-note { font-size: 0.6rem; color: #2a4a2a; text-align: center; max-width: 720px; line-height: 1.6; }
-        .strike-bar { width: 100%; max-width: 720px; display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
-        #manual-strike-btn {
-            flex: 1; padding: 14px 0;
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem; letter-spacing: 0.2em; font-weight: bold;
-            background: #0a1a0a; color: var(--yellow);
-            border: 2px solid var(--yellow); cursor: pointer; text-transform: uppercase;
-            transition: background 0.15s, color 0.15s, box-shadow 0.15s;
-        }
-        #manual-strike-btn:hover:not(:disabled) { background: var(--yellow); color: #050505; box-shadow: 0 0 18px var(--yellow); }
-        #manual-strike-btn:disabled { opacity: 0.35; cursor: not-allowed; border-color: #4a4a00; color: #4a4a00; }
-        #manual-strike-btn.striking { background: #1a0a0a; color: var(--red); border-color: var(--red); animation: pulse-red 0.7s infinite alternate; }
-        @keyframes pulse-red { from { box-shadow: 0 0 4px var(--red); } to { box-shadow: 0 0 20px var(--red); } }
-        .arb-box { width: 100%; max-width: 720px; border: 1px solid var(--border); background: var(--surface); padding: 14px 16px; margin-bottom: 16px; font-size: 0.72rem; }
-        .arb-box .arb-title { font-size: 0.65rem; color: var(--dim-green); letter-spacing: 0.2em; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-        .arb-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
-        .arb-label { color: #4a7a4a; }
-        .arb-val { color: var(--green); font-weight: bold; }
-        .arb-val.pos { color: var(--green); } .arb-val.neg { color: var(--red); } .arb-val.alert { color: var(--yellow); }
-        #block-num { font-size: 0.65rem; color: #3a5a3a; }
-        .auto-toggle { width: 100%; max-width: 720px; display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 10px 16px; border: 1px solid var(--border); background: var(--surface); font-size: 0.72rem; }
-        .auto-toggle label { color: var(--dim-green); cursor: pointer; display: flex; align-items: center; gap: 8px; }
-        .auto-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--green); cursor: pointer; }
-        .auto-toggle .auto-status { margin-left: auto; font-weight: bold; }
-        .auto-toggle .auto-status.on { color: var(--green); }
-        .auto-toggle .auto-status.off { color: var(--red); }
-    </style>
-</head>
-<body>
-    <h1>BASE_MAINNET ARB_BOT V2.0 (DIRECTIONAL ONLY)</h1>
-    <p class="subtitle">TWO-WAY_ARBITRAGE &middot; UNI &#x21C4; AERO &middot; USDC/WETH &middot; FLASH_LOAN &middot; COSTS+$1_GUARD &middot; SIMULATE_FIRST</p>
-    <div class="network-badge">
-        NETWORK: <span id="network-status">CHECKING...</span>
-        &nbsp;|&nbsp; WALLET: <span id="wallet-addr">NOT_CONNECTED</span>
-    </div>
-    <div class="profit-display">
-        <div class="profit-label">NET PROFIT &mdash; USDC/WETH DIRECTIONAL</div>
-        <div class="profit-amount" id="spread-display">$0.0000</div>
-        <div class="net-profit-row">
-            <div class="net-item"><span class="n-label">GROSS_PROFIT</span><span class="n-val" id="gross-profit">$0.0000</span></div>
-            <div class="net-item"><span class="n-label">SLIPPAGE_COST</span><span class="n-val alert" id="slip-cost">$0.0000</span></div>
-            <div class="net-item"><span class="n-label">EST_GAS_COST</span><span class="n-val alert" id="gas-cost">$0.0000</span></div>
-            <div class="net-item"><span class="n-label">TOTAL_COSTS</span><span class="n-val alert" id="total-costs">$0.0000</span></div>
-            <div class="net-item"><span class="n-label">NET_PROFIT</span><span class="n-val" id="net-profit">$0.0000</span></div>
-            <div class="net-item"><span class="n-label">DIRECTION</span><span class="n-val" id="arb-direction">&mdash;</span></div>
-            <div class="net-item"><span class="n-label">LOAN_SIZE</span><span class="n-val" id="active-loan">&mdash;</span></div>
+      }
+    } catch (e: any) {
+      scanner.addLog(`CONNECT_ERROR: ${e.message}`, "error");
+    }
+  }, [scanner]);
+
+  const applyPrivateRpc = useCallback(() => {
+    setCustomRpc(privateRpc);
+    if (privateRpc) {
+      scanner.addLog(`PRIVATE_RPC_SET: ${privateRpc.slice(0, 30)}...`, "success");
+    } else {
+      scanner.addLog("RPC_RESET to default Base RPC", "info");
+    }
+  }, [privateRpc, scanner]);
+
+  const resetConfig = useCallback(() => {
+    lsClear(Object.values(LS));
+    setContractAddress("");
+    setPrivateRpc("");
+    setTradeSizeEth(1.2);
+    setTenderlyKey("");
+    setTenderlyAccount("");
+    setTenderlyProject("");
+    setCustomRpc("");
+    scanner.addLog("CONFIG_RESET — localStorage cleared, all fields emptied", "warning");
+  }, [scanner]);
+
+  const handleStrike = useCallback(async () => {
+    if (!contractAddress) { scanner.addLog("NO_CONTRACT_ADDRESS set", "error"); return; }
+    if (!walletAddress) { scanner.addLog("WALLET_NOT_CONNECTED", "error"); return; }
+
+    setIsStriking(true);
+
+    if (scanner.isScanning) scanner.pauseScanning();
+    scanner.addLog("SCANNER_PAUSED — STRIKE PRIORITY MODE ACTIVE", "strike");
+
+    if (tenderlyKey) {
+      scanner.addLog("SIMULATING via Tenderly...", "info");
+      const { Interface } = await import("ethers");
+      const iface = new Interface([
+        "function strike(uint8 strategyId, uint256 amount, uint256 minAmountOut)",
+      ]);
+      const encodedData = iface.encodeFunctionData("strike", [
+        selectedStrategy,
+        BigInt(Math.floor(tradeSizeEth * 1e18)),
+        0,
+      ]);
+
+      const sim = await simulateWithTenderly(
+        contractAddress, encodedData,
+        tenderlyKey, tenderlyAccount, tenderlyProject, walletAddress
+      );
+
+      if (!sim.success) {
+        scanner.addLog(`SIMULATION_FAILED: ${sim.error}`, "error");
+        setSimResult(`FAILED: ${sim.error}`);
+        setIsStriking(false);
+        scanner.resumeScanning();
+        return;
+      }
+      scanner.addLog(`SIMULATION_PASSED — Gas: ${sim.gasUsed}`, "success");
+      setSimResult(`PASSED — Gas: ${sim.gasUsed}`);
+    }
+
+    try {
+      if (!window.ethereum) throw new Error("No wallet — install MetaMask");
+
+      const { Interface } = await import("ethers");
+      const iface = new Interface([
+        "function strike(uint8 strategyId, uint256 amount, uint256 minAmountOut)",
+      ]);
+      const data = iface.encodeFunctionData("strike", [
+        selectedStrategy,
+        BigInt(Math.floor(tradeSizeEth * 1e18)),
+        0,
+      ]);
+
+      const rpcLabel = isPrivateRpc() ? "CHAINSTACK (private)" : "MetaMask default";
+      scanner.addLog(`BROADCASTING via ${rpcLabel}...`, "info");
+
+      const txHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: walletAddress,
+          to: contractAddress,
+          data: data,
+          gas: "0x7A120",
+          maxPriorityFeePerGas: "0xF4240",
+        }],
+      });
+
+      scanner.addLog(`TX_BROADCAST — txHash: ${txHash}`, "success");
+      scanner.addLog(`BASESCAN: https://basescan.org/tx/${txHash}`, "success");
+      scanner.recordStrike(scanner.scanResult?.netProfit || 0);
+    } catch (e: any) {
+      scanner.addLog(`STRIKE_FAILED: ${e.message}`, "error");
+    } finally {
+      setIsStriking(false);
+      if (scanner.isScanning) scanner.resumeScanning();
+    }
+  }, [
+    contractAddress, walletAddress, tradeSizeEth, selectedStrategy,
+    tenderlyKey, tenderlyAccount, tenderlyProject, scanner,
+  ]);
+
+  useEffect(() => {
+    if (scanner.autoStrike && scanner.scanResult?.shouldStrike && !isStriking && contractAddress) {
+      handleStrike();
+    }
+  }, [scanner.autoStrike, scanner.scanResult?.shouldStrike, isStriking, contractAddress, handleStrike]);
+
+  const sr = scanner.scanResult;
+  const spreadColor = sr
+    ? sr.prices.spreadPercent >= MIN_SPREAD_PERCENT ? "text-green-400" : "text-red-400"
+    : "text-gray-500";
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-[#00ff41] font-mono p-4 md:p-6 flex flex-col items-center">
+      <h1 className="text-lg tracking-[0.15em] mb-1 text-shadow-green">
+        BASE_MAINNET ARB_BOT V4.0
+      </h1>
+      <p className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-5">
+        INTRA-PROTOCOL &middot; WETH/cbETH &middot; LST-SOFT-PEG &middot;
+        TRIANGULAR &middot; FLASH_LOAN &middot; MEV-PROTECTED
+      </p>
+
+      <div className="w-full max-w-[780px] text-center text-[0.7rem] py-1.5 px-3 mb-3 border border-[#1a2e1a] bg-[#0a0a0a]">
+        NETWORK:{" "}
+        <span className={networkOk ? "text-[#00ff41] font-bold" : "text-red-400 font-bold"}>
+          {networkOk ? "BASE (8453) CONNECTED" : "NOT CONNECTED"}
+        </span>
+        {" | "}WALLET:{" "}
+        <span className="text-[#00aa28]">
+          {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "NOT_CONNECTED"}
+        </span>
+        {!walletAddress && (
+          <button
+            onClick={connectWallet}
+            className="ml-3 px-2 py-0.5 border border-[#00ff41] text-[#00ff41] text-[0.6rem] hover:bg-[#00ff41] hover:text-black transition-colors"
+          >
+            CONNECT
+          </button>
+        )}
+      </div>
+
+      <div className="w-full max-w-[780px] border border-[#1a2e1a] bg-[#0a0a0a] p-5 text-center mb-4">
+        <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-2">
+          NET PROFIT — WETH/cbETH INTRA-PROTOCOL
         </div>
-    </div>
-    <div class="pool-grid">
-        <div class="pool-card">
-            <div class="p-name">UNISWAP V3</div>
-            <div class="p-price" id="price-uni">...</div>
-            <div class="p-tag mute" id="tag-uni">&mdash;</div>
+        <div
+          className={`text-5xl font-bold ${
+            sr && sr.netProfit > 0 ? "text-[#00ff41]"
+            : sr && sr.netProfit < 0 ? "text-red-400"
+            : "text-white"
+          }`}
+          style={{ textShadow: "0 0 16px #00ff41" }}
+        >
+          ${sr ? sr.netProfit.toFixed(4) : "0.0000"}
         </div>
-        <div class="pool-card">
-            <div class="p-name">AERODROME</div>
-            <div class="p-price" id="price-aero">...</div>
-            <div class="p-tag mute" id="tag-aero">&mdash;</div>
+        <div className="flex flex-wrap justify-center gap-6 mt-3 text-[0.72rem]">
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">GROSS_PROFIT</span>
+            <span className="text-[#00ff41] font-bold">${sr ? sr.grossProfit.toFixed(4) : "0.0000"}</span>
+          </div>
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">SLIPPAGE_COST</span>
+            <span className="text-yellow-400 font-bold">${sr ? sr.slippageCost.toFixed(4) : "0.0000"}</span>
+          </div>
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">EST_GAS_COST</span>
+            <span className="text-yellow-400 font-bold">${sr ? sr.gasCost.toFixed(4) : "0.0000"}</span>
+          </div>
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">TOTAL_COSTS</span>
+            <span className="text-yellow-400 font-bold">${sr ? sr.totalCosts.toFixed(4) : "0.0000"}</span>
+          </div>
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">DIRECTION</span>
+            <span className="text-[#00ff41] font-bold">{sr ? sr.prices.direction : "—"}</span>
+          </div>
+          <div className="text-center">
+            <span className="text-[#4a7a4a] block">LOAN_SIZE</span>
+            <span className="text-[#00ff41] font-bold">{tradeSizeEth} ETH</span>
+          </div>
         </div>
-    </div>
-    <div class="arb-box">
-        <div class="arb-title">DIRECTIONAL_ARBITRAGE &mdash; USDC &#x21C4; WETH</div>
-        <div class="arb-row"><span class="arb-label">DIRECTION</span><span class="arb-val" id="arb-dir">&mdash;</span></div>
-        <div class="arb-row"><span class="arb-label">SPREAD</span><span class="arb-val" id="arb-spread">0.00%</span></div>
-        <div class="arb-row"><span class="arb-label">BUY_PRICE</span><span class="arb-val" id="arb-buy">$0.00</span></div>
-        <div class="arb-row"><span class="arb-label">SELL_PRICE</span><span class="arb-val" id="arb-sell">$0.00</span></div>
-        <div class="arb-row"><span class="arb-label">NET_PROFIT</span><span class="arb-val" id="arb-net">&mdash;</span></div>
-        <div class="arb-row"><span class="arb-label">TOTAL_COSTS</span><span class="arb-val alert" id="arb-costs">&mdash;</span></div>
-        <div class="arb-row"><span class="arb-label">MIN_GROSS_TO_STRIKE</span><span class="arb-val alert" id="arb-min-gross">&mdash;</span></div>
-        <div class="arb-row"><span class="arb-label">ACTIVE_LOAN</span><span class="arb-val" id="arb-loan">&mdash;</span></div>
-        <div class="arb-row"><span class="arb-label">STATUS</span><span class="arb-val alert" id="arb-status">SCANNING...</span></div>
-    </div>
-    <div class="grid">
-        <div class="panel">
-            <div class="panel-title">SCAN_CONFIG</div>
-            <div class="data-row"><span class="label">LOAN_SOURCE</span><span class="value">BALANCER_V2</span></div>
-            <div class="data-row"><span class="label">LOAN_TOKEN</span><span class="value">USDC</span></div>
-            <div class="data-row"><span class="label">MAX_LOAN</span><span class="value">3,000 USDC</span></div>
-            <div class="data-row"><span class="label">FLASH_FEE</span><span class="value">0.00%</span></div>
-            <div class="data-row"><span class="label">SLIP_ESTIMATE</span><span class="value">0.05%</span></div>
-            <div class="data-row"><span class="label">SCAN_INTERVAL</span><span class="value">3s</span></div>
-            <div class="data-row"><span class="label">NET_MIN_TRIGGER</span><span class="value">COSTS + $1.00</span></div>
+      </div>
+
+      <div className="w-full max-w-[780px] grid grid-cols-2 gap-3 mb-4">
+        <div className="border border-[#1a2e1a] bg-[#0a0a0a] p-3 text-center">
+          <div className="text-[#00aa28] tracking-[0.1em] text-[0.7rem] mb-1">AERODROME (Stable Pool)</div>
+          <div className="text-[#00ff41] text-xl font-bold">
+            {sr ? sr.prices.aerodromePrice.toFixed(6) : "..."}
+          </div>
+          <div className={`text-[0.6rem] mt-1 ${sr?.prices.buyDex === "AERODROME" ? "text-green-400" : "text-yellow-400"}`}>
+            {sr?.prices.buyDex === "AERODROME" ? "BUY" : "SELL"}
+          </div>
         </div>
-        <div class="panel">
-            <div class="panel-title">STRATEGY</div>
-            <div class="data-row"><span class="label">TYPE</span><span class="value">DIRECTIONAL_2WAY</span></div>
-            <div class="data-row"><span class="label">PAIR</span><span class="value">USDC/WETH</span></div>
-            <div class="data-row"><span class="label">DEX_A</span><span class="value">UNISWAP_V3</span></div>
-            <div class="data-row"><span class="label">DEX_B</span><span class="value">AERODROME</span></div>
-            <div class="data-row"><span class="label">CONTRACT</span><span class="value">0xF552...8B70</span></div>
-            <div class="data-row"><span class="label">CHAIN</span><span class="value">BASE (8453)</span></div>
-            <div class="data-row"><span class="label">ADAPTIVE</span><span class="value">YES (auto-size)</span></div>
+        <div className="border border-[#1a2e1a] bg-[#0a0a0a] p-3 text-center">
+          <div className="text-[#00aa28] tracking-[0.1em] text-[0.7rem] mb-1">UNISWAP V3 (0.05%)</div>
+          <div className="text-[#00ff41] text-xl font-bold">
+            {sr ? sr.prices.uniswapPrice.toFixed(6) : "..."}
+          </div>
+          <div className={`text-[0.6rem] mt-1 ${sr?.prices.buyDex === "UNISWAP_V3" ? "text-green-400" : "text-yellow-400"}`}>
+            {sr?.prices.buyDex === "UNISWAP_V3" ? "BUY" : "SELL"}
+          </div>
         </div>
-    </div>
-    <div class="status-bar">
-        <span id="status-text">INITIALIZING...</span>
-        <span id="rpc-indicator">RPC: &mdash;</span>
-        <span id="tick-counter">TICK: 0</span>
-        <span id="block-num">BLOCK: &mdash;</span>
-    </div>
-    <div class="auto-toggle">
-        <label>
-            <input type="checkbox" id="auto-strike-toggle" checked />
-            AUTO-STRIKE
+      </div>
+
+      <div className="w-full max-w-[780px] border border-[#1a2e1a] bg-[#0a0a0a] p-3.5 mb-4 text-[0.72rem]">
+        <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-2.5 border-b border-[#1a2e1a] pb-1.5">
+          ARBITRAGE_STATUS
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">STRATEGY</span>
+          <span className="text-[#00ff41] font-bold">{STRATEGY_LABELS[selectedStrategy]}</span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">SPREAD</span>
+          <span className={`font-bold ${spreadColor}`}>
+            {sr ? sr.prices.spreadPercent.toFixed(4) : "0.0000"}%
+          </span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">BUY_PRICE</span>
+          <span className="text-[#00ff41] font-bold">{sr ? sr.prices.buyPrice.toFixed(6) : "$0.00"}</span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">SELL_PRICE</span>
+          <span className="text-[#00ff41] font-bold">{sr ? sr.prices.sellPrice.toFixed(6) : "$0.00"}</span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">NET_PROFIT</span>
+          <span className={`font-bold ${sr && sr.netProfit > 0 ? "text-[#00ff41]" : "text-red-400"}`}>
+            ${sr ? sr.netProfit.toFixed(4) : "0.0000"}
+          </span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">GAS_PRICE</span>
+          <span className={`font-bold ${sr?.gas.isAboveThreshold ? "text-red-400" : "text-[#00ff41]"}`}>
+            {sr ? sr.gas.gasPriceGwei.toFixed(4) : "0.0000"} gwei
+            {sr?.gas.isAboveThreshold ? " (PAUSED)" : ""}
+          </span>
+        </div>
+        <div className="flex justify-between my-1.5">
+          <span className="text-[#4a7a4a]">STATUS</span>
+          <span className={`font-bold ${sr?.shouldStrike ? "text-[#00ff41]" : "text-yellow-400"}`}>
+            {sr ? sr.reason : "WAITING..."}
+          </span>
+        </div>
+      </div>
+
+      <div className="w-full max-w-[780px] grid grid-cols-2 gap-4 mb-4">
+        <div className="border border-[#1a2e1a] bg-[#0a0a0a] p-4">
+          <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-3 border-b border-[#1a2e1a] pb-1.5">
+            SCAN_CONFIG
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">LOAN_SOURCE</span>
+            <span className="text-[#00ff41] font-bold">BALANCER_V2</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">LOAN_TOKEN</span>
+            <span className="text-[#00ff41] font-bold">WETH</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">TARGET_PAIR</span>
+            <span className="text-[#00ff41] font-bold">WETH/cbETH</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">FLASH_FEE</span>
+            <span className="text-[#00ff41] font-bold">0.00%</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">SCAN_INTERVAL</span>
+            <span className="text-[#00ff41] font-bold">2s</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">MIN_SPREAD</span>
+            <span className="text-[#00ff41] font-bold">{MIN_SPREAD_PERCENT}%</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">MIN_NET_PROFIT</span>
+            <span className="text-[#00ff41] font-bold">${MIN_NET_PROFIT_USD}</span>
+          </div>
+          <div className="flex justify-between my-2 text-[0.78rem]">
+            <span className="text-[#4a7a4a]">GAS_PAUSE</span>
+            <span className="text-[#00ff41] font-bold">{GAS_PAUSE_THRESHOLD_GWEI} gwei</span>
+          </div>
+        </div>
+
+        <div className="border border-[#1a2e1a] bg-[#0a0a0a] p-4">
+          <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-3 border-b border-[#1a2e1a] pb-1.5">
+            CONFIGURATION
+          </div>
+          <div className="mb-2">
+            <label className="text-[#4a7a4a] text-[0.65rem] block mb-0.5">CONTRACT_ADDRESS</label>
+            <input
+              type="text"
+              value={contractAddress}
+              onChange={(e) => setContractAddress(e.target.value)}
+              placeholder="0x..."
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.7rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            />
+          </div>
+          <div className="mb-2">
+            <label className="text-[#4a7a4a] text-[0.65rem] block mb-0.5">PRIVATE_RPC (Flashbots/MEV-Blocker)</label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={privateRpc}
+                onChange={(e) => setPrivateRpc(e.target.value)}
+                placeholder="https://rpc.flashbots.net/..."
+                className="flex-1 bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.7rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+              />
+              <button
+                onClick={applyPrivateRpc}
+                className="px-2 py-1 border border-[#00ff41] text-[#00ff41] text-[0.6rem] hover:bg-[#00ff41] hover:text-black transition-colors"
+              >
+                SET
+              </button>
+            </div>
+          </div>
+          <div className="mb-2">
+            <label className="text-[#4a7a4a] text-[0.65rem] block mb-0.5">LOAN_SIZE (ETH)</label>
+            <input
+              type="number"
+              step="0.1"
+              value={tradeSizeEth}
+              onChange={(e) => setTradeSizeEth(parseFloat(e.target.value) || 1.2)}
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.7rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            />
+          </div>
+          <div className="mb-2">
+            <label className="text-[#4a7a4a] text-[0.65rem] block mb-0.5">STRATEGY</label>
+            <select
+              value={selectedStrategy}
+              onChange={(e) => setSelectedStrategy(parseInt(e.target.value))}
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.7rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            >
+              <option value={0}>LST Soft-Peg (WETH/cbETH)</option>
+              <option value={1}>Triangular (WETH→USDC→cbETH→WETH)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="w-full max-w-[780px] border border-[#1a2e1a] bg-[#0a0a0a] p-4 mb-4">
+        <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-3 border-b border-[#1a2e1a] pb-1.5">
+          TENDERLY_SIMULATION
+        </div>
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <div>
+            <label className="text-[#4a7a4a] text-[0.6rem] block mb-0.5">API_KEY</label>
+            <input
+              type="password"
+              value={tenderlyKey}
+              onChange={(e) => setTenderlyKey(e.target.value)}
+              placeholder="API Key"
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.65rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-[#4a7a4a] text-[0.6rem] block mb-0.5">ACCOUNT</label>
+            <input
+              type="text"
+              value={tenderlyAccount}
+              onChange={(e) => setTenderlyAccount(e.target.value)}
+              placeholder="Account slug"
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.65rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-[#4a7a4a] text-[0.6rem] block mb-0.5">PROJECT</label>
+            <input
+              type="text"
+              value={tenderlyProject}
+              onChange={(e) => setTenderlyProject(e.target.value)}
+              placeholder="Project slug"
+              className="w-full bg-[#080808] border border-[#1a2e1a] text-[#00ff41] text-[0.65rem] px-2 py-1 font-mono focus:border-[#00ff41] outline-none"
+            />
+          </div>
+        </div>
+        {simResult && (
+          <div className={`text-[0.7rem] mt-1 ${simResult.startsWith("PASSED") ? "text-[#00ff41]" : "text-red-400"}`}>
+            SIMULATION: {simResult}
+          </div>
+        )}
+      </div>
+
+      <div className="w-full max-w-[780px] flex flex-wrap justify-between items-center py-2 px-3 border border-[#1a2e1a] bg-[#0a0a0a] text-[0.65rem] mb-4 gap-y-1">
+        <span className="text-yellow-400 tracking-[0.15em]">
+          {scanner.isScanning ? (scanner.usingWebSocket ? "WSS_SCAN..." : "POLLING...") : "IDLE"}
+        </span>
+        <span className={`font-bold tracking-[0.1em] ${
+          scanner.nodeHealth === "OK" ? "text-[#00ff41]"
+          : scanner.nodeHealth === "THROTTLING" ? "text-yellow-400"
+          : "text-red-400"
+        }`}>
+          NODE:{" "}
+          {scanner.nodeHealth === "THROTTLING" ? "YELLOW — THROTTLING"
+          : scanner.nodeHealth === "ERROR" ? "RED — ERROR"
+          : scanner.usingWebSocket ? "GREEN — WSS"
+          : "GREEN — HTTP"}
+        </span>
+        <span className="text-[#00aa28]">RPC: {isPrivateRpc() ? "PRIVATE" : "PUBLIC"}</span>
+        <span className="text-[#3a5a3a]">TICK: {scanner.tickCount}</span>
+        <span className="text-[#3a5a3a]">BLOCK: {sr?.blockNumber || "—"}</span>
+      </div>
+
+      <div className="w-full max-w-[780px] flex items-center gap-3 mb-4 p-2.5 border border-[#1a2e1a] bg-[#0a0a0a] text-[0.72rem]">
+        <label className="text-[#00aa28] cursor-pointer flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={scanner.autoStrike}
+            onChange={scanner.toggleAutoStrike}
+            className="w-4 h-4 accent-[#00ff41] cursor-pointer"
+          />
+          AUTO-STRIKE
         </label>
-        <span class="auto-status on" id="auto-strike-status">ENABLED</span>
+        <span className={`ml-auto font-bold ${scanner.autoStrike ? "text-[#00ff41]" : "text-red-400"}`}>
+          {scanner.autoStrike ? "ENABLED" : "DISABLED"}
+        </span>
+      </div>
+
+      <div className="w-full max-w-[780px] flex gap-3 mb-4">
+        <button
+          onClick={() => {
+            if (scanner.isScanning) { scanner.stopScanning(); } else { scanner.startScanning(); }
+          }}
+          className={`flex-1 py-3.5 font-mono text-[0.85rem] tracking-[0.2em] font-bold border-2 cursor-pointer uppercase transition-all ${
+            scanner.isScanning
+              ? "bg-[#1a0a0a] text-red-400 border-red-400 hover:bg-red-400 hover:text-[#050505]"
+              : "bg-[#0a1a0a] text-[#00ff41] border-[#00ff41] hover:bg-[#00ff41] hover:text-[#050505]"
+          }`}
+        >
+          {scanner.isScanning ? "STOP SCANNER" : "START SCANNER"}
+        </button>
+        <button
+          onClick={handleStrike}
+          disabled={isStriking || !contractAddress}
+          className={`flex-1 py-3.5 font-mono text-[0.85rem] tracking-[0.2em] font-bold border-2 cursor-pointer uppercase transition-all ${
+            isStriking
+              ? "bg-[#1a0a0a] text-red-400 border-red-400 animate-pulse opacity-70 cursor-not-allowed"
+              : "bg-[#0a1a0a] text-yellow-400 border-yellow-400 hover:bg-yellow-400 hover:text-[#050505] disabled:opacity-35 disabled:cursor-not-allowed disabled:border-[#4a4a00] disabled:text-[#4a4a00]"
+          }`}
+        >
+          {isStriking ? "STRIKING..." : "MANUAL STRIKE"}
+        </button>
+      </div>
+
+      <div className="w-full max-w-[780px] flex gap-3 mb-4">
+        <button
+          onClick={scanner.fetchPools}
+          className="flex-1 py-2.5 font-mono text-[0.75rem] tracking-[0.15em] font-bold bg-[#0a0a1a] text-blue-400 border-2 border-blue-400 hover:bg-blue-400 hover:text-[#050505] cursor-pointer uppercase transition-all"
+        >
+          SCAN BEST PAIRS (GeckoTerminal)
+        </button>
+        <button
+          onClick={async () => {
+            if (!tenderlyKey) { scanner.addLog("TENDERLY_KEY required for simulation", "error"); return; }
+            if (!walletAddress) { scanner.addLog("CONNECT_WALLET before simulating", "error"); return; }
+            scanner.addLog("Running Tenderly simulation...", "info");
+            const { Interface } = await import("ethers");
+            const iface = new Interface([
+              "function strike(uint8 strategyId, uint256 amount, uint256 minAmountOut)",
+            ]);
+            const encodedData = iface.encodeFunctionData("strike", [
+              selectedStrategy,
+              BigInt(Math.floor(tradeSizeEth * 1e18)),
+              0,
+            ]);
+            const sim = await simulateWithTenderly(
+              contractAddress || "0x0000000000000000000000000000000000000000",
+              encodedData, tenderlyKey, tenderlyAccount, tenderlyProject, walletAddress
+            );
+            setSimResult(sim.success ? `PASSED — Gas: ${sim.gasUsed}` : `FAILED: ${sim.error}`);
+            scanner.addLog(
+              sim.success ? `SIM_PASSED — Gas: ${sim.gasUsed}` : `SIM_FAILED: ${sim.error}`,
+              sim.success ? "success" : "error"
+            );
+          }}
+          className="flex-1 py-2.5 font-mono text-[0.75rem] tracking-[0.15em] font-bold bg-[#1a0a1a] text-purple-400 border-2 border-purple-400 hover:bg-purple-400 hover:text-[#050505] cursor-pointer uppercase transition-all"
+        >
+          SIMULATE (Tenderly)
+        </button>
+      </div>
+
+      <div className="w-full max-w-[780px] mb-4">
+        <button
+          onClick={resetConfig}
+          className="w-full py-2 font-mono text-[0.7rem] tracking-[0.15em] font-bold bg-[#1a0a0a] text-red-500 border border-red-800 hover:bg-red-900 hover:text-red-300 cursor-pointer uppercase transition-all"
+        >
+          RESET CONFIGURATION (clear localStorage)
+        </button>
+      </div>
+
+      {scanner.topPools.length > 0 && (
+        <div className="w-full max-w-[780px] border border-[#1a2e1a] bg-[#0a0a0a] p-4 mb-4">
+          <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-3 border-b border-[#1a2e1a] pb-1.5">
+            {"TOP POOLS — BASE NETWORK (>$2M LIQ, >$500K VOL)"}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[0.65rem]">
+              <thead>
+                <tr className="text-[#4a7a4a]">
+                  <th className="text-left py-1">PAIR</th>
+                  <th className="text-right py-1">LIQUIDITY</th>
+                  <th className="text-right py-1">24H VOL</th>
+                  <th className="text-right py-1">DEX</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scanner.topPools.map((pool, i) => (
+                  <tr key={i} className="border-t border-[#1a2e1a]">
+                    <td className="py-1 text-[#00ff41]">{pool.name}</td>
+                    <td className="py-1 text-right text-[#00aa28]">${(pool.liquidity / 1e6).toFixed(2)}M</td>
+                    <td className="py-1 text-right text-yellow-400">${(pool.volume24h / 1e6).toFixed(2)}M</td>
+                    <td className="py-1 text-right text-[#4a7a4a]">{pool.dex}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full max-w-[780px] border border-[#1a2e1a] bg-[#0a0a0a] p-4 mb-4">
+        <div className="text-[0.65rem] text-[#00aa28] tracking-[0.2em] mb-2 border-b border-[#1a2e1a] pb-1.5">
+          SESSION_STATS
+        </div>
+        <div className="flex gap-8 text-[0.72rem]">
+          <div>
+            <span className="text-[#4a7a4a]">STRIKES: </span>
+            <span className="text-[#00ff41] font-bold">{scanner.totalStrikes}</span>
+          </div>
+          <div>
+            <span className="text-[#4a7a4a]">TOTAL_PROFIT: </span>
+            <span className="text-[#00ff41] font-bold">${scanner.totalProfit.toFixed(4)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="w-full max-w-[780px] h-40 bg-[#080808] border border-[#1a2e1a] overflow-y-auto text-[0.65rem] text-left p-2.5 text-[#00aa28] mb-4">
+        {scanner.logs.length === 0 && (
+          <div className="text-[#3a5a3a]">Waiting for scanner...</div>
+        )}
+        {scanner.logs.map((log, i) => (
+          <div
+            key={i}
+            className={`mb-0.5 ${
+              log.type === "strike" ? "text-yellow-400"
+              : log.type === "success" ? "text-[#00ff41]"
+              : log.type === "error" ? "text-red-400"
+              : log.type === "warning" ? "text-yellow-400"
+              : "text-[#00aa28]"
+            }`}
+          >
+            [{log.timestamp.toLocaleTimeString()}] {log.message}
+          </div>
+        ))}
+      </div>
+
+      <div className="text-[0.6rem] text-[#2a4a2a] text-center max-w-[780px] leading-relaxed">
+        BASE_MAINNET ARB_BOT V4.0 | Intra-Protocol Arbitrage | WETH/cbETH LST-Soft-Peg + Triangular
+        | Balancer Flash Loan (0% fee) | SafeERC20 | Emergency Withdraw | MEV-Protected
+        | Tenderly Simulation | Dynamic Slippage | Gas Auto-Pause at {GAS_PAUSE_THRESHOLD_GWEI} gwei
+        | Min Spread: {MIN_SPREAD_PERCENT}% | Min Net Profit: ${MIN_NET_PROFIT_USD}
+      </div>
     </div>
-    <div class="strike-bar">
-        <button id="manual-strike-btn" disabled>&#9654; MANUAL STRIKE (CONNECT WALLET)</button>
-    </div>
-    <div class="log-box" id="logs"></div>
-    <div class="footer-note">
-        TWO-WAY DIRECTIONAL: Borrow USDC &rarr; buy WETH on cheaper DEX &rarr; sell on pricier DEX &rarr; repay &rarr; keep profit<br>
-        Auto-selects best direction &middot; Adaptive loan sizing (steps down on any revert) &middot; eth_call simulation first &middot; Fires when GROSS covers slippage + gas + $1.00 profit
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
-    <script>
-    "use strict";
-
-    const CONFIG = {
-        RPCs: [
-            "https://mainnet.base.org",
-            "https://base.drpc.org",
-            "https://base-rpc.publicnode.com",
-            "https://base.llamarpc.com",
-            "https://1rpc.io/base",
-        ],
-        UNI_POOL:            "0xd0b53D9277642d899DF5C87A3966A349A798F224",
-        AERO_POOL:           "0xcDAC0d6c6C59727a65F871236188350531885C43",
-        BOT_CONTRACT:        "0xE38CdE383AbD0004F82C00d7a06a1C2C3bD7000E",
-        WETH:                "0x4200000000000000000000000000000000000006",
-        USDC:                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-
-        MAX_LOAN_USDC:       3000,
-        LOAN_STEPS:          [3000, 2000, 1500, 1000, 750, 500, 300, 200, 100],
-        USDC_DECIMALS:       6,
-        WETH_DECIMALS:       18,
-        MIN_PROFIT_ABOVE_COSTS: 1.00,
-        SLIPPAGE_PCT:        0.0005,
-        ESTIMATED_GAS_UNITS: 350000,
-        SCAN_MS:             3000,
-        RPC_TIMEOUT_MS:      8000,
-        ETH_PRICE_USD:       2500,
-        STRIKE_COOLDOWN_MS:  15000,
-        MAX_SIM_RETRIES:     3,
-    };
-
-    const BASE_CHAIN_ID     = 8453;
-    const BASE_CHAIN_ID_HEX = "0x2105";
-
-    const BOT_ABI = [
-        "function strike(uint8 direction, uint256 amount) external"
-    ];
-
-    const UNI_SLOT0_ABI = [
-        "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)"
-    ];
-
-    const AERO_POOL_ABI = [
-        "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint256 blockTimestampLast)",
-        "function token0() view returns (address)"
-    ];
-
-    let currentRpc        = 0;
-    let tickCount         = 0;
-    let isStriking        = false;
-    let lastBaseFeeGwei   = 0.001;
-    let walletConnected   = false;
-    let walletSigner      = null;
-    let bestDirection     = null;
-    let bestNetUSD        = 0;
-    let aeroToken0        = null;
-    let autoStrikeEnabled = true;
-    let lastStrikeTime    = 0;
-    let activeLoanAmount  = CONFIG.MAX_LOAN_USDC;
-    let consecutiveFails  = 0;
-
-    function withTimeout(promise, ms) {
-        return Promise.race([
-            promise,
-            new Promise((_, rej) =>
-                setTimeout(() => rej(new Error("RPC timeout")), ms)
-            )
-        ]);
-    }
-
-    function getProvider() {
-        return new ethers.JsonRpcProvider(CONFIG.RPCs[currentRpc]);
-    }
-
-    function rotateRpc(reason) {
-        currentRpc = (currentRpc + 1) % CONFIG.RPCs.length;
-        const host = CONFIG.RPCs[currentRpc].replace("https://", "").split("/")[0];
-        log(`RPC rotated (${reason}) -> ${host}`, "info");
-        document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
-    }
-
-    function log(msg, cls = "info") {
-        const box = document.getElementById("logs");
-        const ts  = new Date().toLocaleTimeString("en-US", { hour12: false });
-        const el  = document.createElement("div");
-        el.className   = `log-entry ${cls}`;
-        el.textContent = `[${ts}] ${msg}`;
-        box.prepend(el);
-        while (box.children.length > 80) box.removeChild(box.lastChild);
-    }
-
-    async function getUniPrice(provider) {
-        const pool  = new ethers.Contract(CONFIG.UNI_POOL, UNI_SLOT0_ABI, provider);
-        const slot0 = await withTimeout(pool.slot0(), CONFIG.RPC_TIMEOUT_MS);
-        const sqrtPriceX96 = BigInt(slot0[0].toString());
-        const Q96           = BigInt(2) ** BigInt(96);
-        const sqrtFloat     = Number(sqrtPriceX96) / Number(Q96);
-        const priceRaw      = sqrtFloat * sqrtFloat;
-        return priceRaw * 1e12;
-    }
-
-    async function getAeroPrice(provider) {
-        async function fetchFromProvider(p) {
-            const pool = new ethers.Contract(CONFIG.AERO_POOL, AERO_POOL_ABI, p);
-            if (!aeroToken0) {
-                aeroToken0 = (await withTimeout(pool.token0(), CONFIG.RPC_TIMEOUT_MS)).toLowerCase();
-            }
-            const reserves = await withTimeout(pool.getReserves(), CONFIG.RPC_TIMEOUT_MS);
-            const r0 = Number(reserves[0]);
-            const r1 = Number(reserves[1]);
-            if (r0 === 0 || r1 === 0) throw new Error("Aerodrome: zero reserves");
-            const isWethToken0 = aeroToken0 === CONFIG.WETH.toLowerCase();
-            const reserveWETH  = isWethToken0 ? r0 : r1;
-            const reserveUSDC  = isWethToken0 ? r1 : r0;
-            return (reserveUSDC * 1e12) / reserveWETH;
-        }
-        try {
-            return await fetchFromProvider(provider);
-        } catch (err) {
-            const msg = (err.message || "").toLowerCase();
-            const isNodeErr = msg.includes("missing revert data") || msg.includes("data=null") ||
-                              msg.includes("could not decode") || msg.includes("network") ||
-                              msg.includes("timeout");
-            if (isNodeErr) {
-                rotateRpc("Aero feed error");
-                return await fetchFromProvider(getProvider());
-            }
-            throw err;
-        }
-    }
-
-    async function fetchGasPrice(provider) {
-        try {
-            const feeData = await withTimeout(provider.getFeeData(), CONFIG.RPC_TIMEOUT_MS);
-            const baseFee = feeData.gasPrice || feeData.maxFeePerGas;
-            if (baseFee) lastBaseFeeGwei = Number(baseFee) / 1e9;
-        } catch (_) {}
-    }
-
-    function calcGasCostUSD() {
-        return lastBaseFeeGwei * 1e-9 * CONFIG.ESTIMATED_GAS_UNITS * CONFIG.ETH_PRICE_USD;
-    }
-
-    function calcArb(uniPrice, aeroPrice, loanAmount) {
-        const loan     = loanAmount || CONFIG.MAX_LOAN_USDC;
-        const slip     = CONFIG.SLIPPAGE_PCT;
-        const gas      = calcGasCostUSD();
-        const slipCost = loan * slip * 2;
-
-        const d1Weth    = (loan / uniPrice)  * (1 - slip);
-        const d1Out     = d1Weth * aeroPrice * (1 - slip);
-        const d1Gross   = d1Out - loan;
-        const d1Net     = d1Gross - slipCost - gas;
-
-        const d2Weth    = (loan / aeroPrice) * (1 - slip);
-        const d2Out     = d2Weth * uniPrice  * (1 - slip);
-        const d2Gross   = d2Out - loan;
-        const d2Net     = d2Gross - slipCost - gas;
-
-        const totalCosts = slipCost + gas;
-        const minGross   = totalCosts + CONFIG.MIN_PROFIT_ABOVE_COSTS;
-
-        if (d1Net >= d2Net) {
-            return {
-                direction: 1, label: "UNI->AERO",
-                buyPrice: uniPrice, sellPrice: aeroPrice,
-                grossUSD: d1Gross, slipCost, gasCost: gas, netUSD: d1Net,
-                totalCosts, minGross,
-                spreadPct: ((aeroPrice - uniPrice) / uniPrice) * 100,
-                loanUsed: loan
-            };
-        } else {
-            return {
-                direction: 0, label: "AERO->UNI",
-                buyPrice: aeroPrice, sellPrice: uniPrice,
-                grossUSD: d2Gross, slipCost, gasCost: gas, netUSD: d2Net,
-                totalCosts, minGross,
-                spreadPct: ((uniPrice - aeroPrice) / aeroPrice) * 100,
-                loanUsed: loan
-            };
-        }
-    }
-
-    function updateUI(uniPrice, aeroPrice, arb) {
-        document.getElementById("price-uni").textContent  = `$${uniPrice.toFixed(2)}`;
-        document.getElementById("price-aero").textContent = `$${aeroPrice.toFixed(2)}`;
-
-        const tagUni  = document.getElementById("tag-uni");
-        const tagAero = document.getElementById("tag-aero");
-        tagUni.className = tagAero.className = "p-tag mute";
-
-        if (arb.direction === 1) {
-            tagUni.textContent  = "BUY HERE";  tagUni.className  = "p-tag buy";
-            tagAero.textContent = "SELL HERE"; tagAero.className = "p-tag sell";
-        } else {
-            tagAero.textContent = "BUY HERE";  tagAero.className = "p-tag buy";
-            tagUni.textContent  = "SELL HERE"; tagUni.className  = "p-tag sell";
-        }
-
-        const netStr   = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
-        const spreadEl = document.getElementById("spread-display");
-        spreadEl.textContent = netStr;
-        spreadEl.className   = "profit-amount " + (arb.netUSD >= 0 ? "positive" : "negative");
-
-        document.getElementById("gross-profit").textContent = `$${arb.grossUSD.toFixed(4)}`;
-        document.getElementById("slip-cost").textContent    = `$${arb.slipCost.toFixed(4)}`;
-        document.getElementById("gas-cost").textContent     = `$${arb.gasCost.toFixed(4)}`;
-        document.getElementById("total-costs").textContent  = `$${arb.totalCosts.toFixed(4)}`;
-
-        const netProfEl = document.getElementById("net-profit");
-        netProfEl.textContent = `$${arb.netUSD.toFixed(4)}`;
-        netProfEl.className   = "n-val" + (arb.netUSD < 0 ? " neg" : "");
-
-        document.getElementById("arb-direction").textContent = arb.label;
-        document.getElementById("active-loan").textContent   = `${arb.loanUsed} USDC`;
-        document.getElementById("arb-dir").textContent       = arb.label;
-        document.getElementById("arb-spread").textContent    = `${Math.abs(arb.spreadPct).toFixed(4)}%`;
-        document.getElementById("arb-buy").textContent       = `$${arb.buyPrice.toFixed(2)}`;
-        document.getElementById("arb-sell").textContent      = `$${arb.sellPrice.toFixed(2)}`;
-        document.getElementById("arb-costs").textContent     = `$${arb.totalCosts.toFixed(4)}`;
-        document.getElementById("arb-min-gross").textContent = `$${arb.minGross.toFixed(4)}`;
-        document.getElementById("arb-loan").textContent      = `${arb.loanUsed} USDC`;
-
-        const arbNetEl = document.getElementById("arb-net");
-        arbNetEl.textContent = (arb.netUSD >= 0 ? "+$" : "-$") + Math.abs(arb.netUSD).toFixed(4);
-        arbNetEl.className   = "arb-val " + (arb.grossUSD >= arb.minGross ? "pos" : arb.netUSD < 0 ? "neg" : "alert");
-
-        const arbStatusEl = document.getElementById("arb-status");
-        if (arb.grossUSD >= arb.minGross) {
-            arbStatusEl.textContent = "OPPORTUNITY DETECTED";
-            arbStatusEl.className   = "arb-val pos";
-        } else {
-            arbStatusEl.textContent = "MONITORING...";
-            arbStatusEl.className   = "arb-val alert";
-        }
-
-        bestDirection = arb.direction;
-        bestNetUSD    = arb.netUSD;
-
-        const btn = document.getElementById("manual-strike-btn");
-        if (walletConnected && !isStriking) {
-            btn.disabled    = false;
-            btn.textContent = arb.grossUSD >= arb.minGross
-                ? `\u25BA STRIKE ${arb.label} (+$${arb.netUSD.toFixed(4)})`
-                : `\u25BA MANUAL STRIKE (${arb.label})`;
-        }
-    }
-
-    function isCooldownActive() {
-        return (Date.now() - lastStrikeTime) < CONFIG.STRIKE_COOLDOWN_MS;
-    }
-
-    function getCooldownRemaining() {
-        const remaining = CONFIG.STRIKE_COOLDOWN_MS - (Date.now() - lastStrikeTime);
-        return Math.max(0, Math.ceil(remaining / 1000));
-    }
-
-    // KEY FIX: simulation uses plain JsonRpcProvider, NOT BrowserProvider/MetaMask.
-    // MetaMask intercepts eth_call and returns data=null for complex flash-loan calls.
-    // Public RPC gives us real on-chain reverts so adaptive step-down works correctly.
-    //
-    // NEW LOGIC: any on-chain revert at a given loan size => step down to smaller size.
-    // Only hard-fail on: (1) network/transport errors (rotate RPC, retry), (2) wrong wallet.
-    async function simulateWithAdaptiveLoan(direction) {
-        const ownerAddr = await walletSigner.getAddress();
-
-        for (let i = 0; i < CONFIG.LOAN_STEPS.length; i++) {
-            const loanUsdc = CONFIG.LOAN_STEPS[i];
-            const loanAmt  = BigInt(loanUsdc) * BigInt(10 ** CONFIG.USDC_DECIMALS);
-
-            const simProvider = getProvider();
-            const simContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, simProvider);
-
-            try {
-                await simContract.strike.staticCall(direction, loanAmt, { from: ownerAddr });
-                log(`Simulation OK at ${loanUsdc} USDC loan`, "success");
-                activeLoanAmount = loanUsdc;
-                consecutiveFails = 0;
-                return { success: true, loanUsdc, loanAmt };
-            } catch (simErr) {
-                const errMsg  = simErr.message || simErr.toString() || "";
-                const lower   = errMsg.toLowerCase();
-                const errCode = simErr.code || "";
-
-                // Network/transport error — rotate RPC and retry the SAME loan size
-                const isNetworkErr =
-                    errCode === "NETWORK_ERROR"       ||
-                    lower.includes("timeout")         ||
-                    lower.includes("econnrefused")    ||
-                    lower.includes("failed to fetch") ||
-                    lower.includes("network error");
-
-                if (isNetworkErr) {
-                    rotateRpc("sim transport error");
-                    log(`Sim: transport error at ${loanUsdc} USDC, retrying on new RPC...`, "info");
-                    i--;  // retry same index
-                    continue;
-                }
-
-                // Wrong wallet — no loan size will fix this, abort immediately
-                if (lower.includes("only owner")) {
-                    log(`CRITICAL: contract owner mismatch — connect the correct wallet`, "error");
-                    return { success: false, loanUsdc, error: "Only Owner — wrong wallet" };
-                }
-
-                // Any other revert (named reason, empty data, DEX router reject, etc.)
-                // => the trade isn't viable at this size, try smaller
-                if (i < CONFIG.LOAN_STEPS.length - 1) {
-                    log(`Sim: ${loanUsdc} USDC reverted -> stepping to ${CONFIG.LOAN_STEPS[i+1]} USDC`, "info");
-                    continue;
-                }
-
-                // All sizes exhausted
-                log(`All loan sizes reverted — spread too thin on-chain`, "error");
-                return { success: false, loanUsdc, error: "All sizes unprofitable on-chain" };
-            }
-        }
-
-        return { success: false, loanUsdc: 0, error: "All loan sizes unprofitable on-chain" };
-    }
-
-    async function executeStrike() {
-        if (isStriking || !walletConnected || !walletSigner) return;
-
-        if (isCooldownActive()) {
-            log(`Cooldown active (${getCooldownRemaining()}s remaining)`, "info");
-            return;
-        }
-
-        isStriking = true;
-        lastStrikeTime = Date.now();
-
-        const btn = document.getElementById("manual-strike-btn");
-        btn.disabled    = true;
-        btn.classList.add("striking");
-        btn.textContent = "EXECUTING...";
-
-        try {
-            const dir = bestDirection !== null ? bestDirection : 1;
-            log(`Strike: direction=${dir} — adaptive loan sizing`, "strike");
-            document.getElementById("status-text").textContent = "SIMULATING...";
-
-            const simResult = await simulateWithAdaptiveLoan(dir);
-
-            if (!simResult.success) {
-                const isMarketCondition =
-                    (simResult.error || "").toLowerCase().includes("unprofitable on-chain") ||
-                    (simResult.error || "").toLowerCase().includes("spread too thin");
-
-                if (isMarketCondition) {
-                    document.getElementById("status-text").textContent = "SPREAD_TOO_THIN";
-                    lastStrikeTime = Date.now();
-                    return;
-                }
-
-                consecutiveFails++;
-                document.getElementById("status-text").textContent = "SIM_FAILED";
-
-                if (consecutiveFails >= CONFIG.MAX_SIM_RETRIES) {
-                    log(`${consecutiveFails} consecutive sim failures — backing off`, "error");
-                    lastStrikeTime = Date.now();
-                    CONFIG.STRIKE_COOLDOWN_MS = Math.min(CONFIG.STRIKE_COOLDOWN_MS * 2, 120000);
-                    log(`Cooldown extended to ${CONFIG.STRIKE_COOLDOWN_MS / 1000}s`, "info");
-                }
-                return;
-            }
-
-            const recalcGas   = calcGasCostUSD();
-            const recalcSlip  = simResult.loanUsdc * CONFIG.SLIPPAGE_PCT * 2;
-            const recalcCosts = recalcSlip + recalcGas;
-            const scaledGross = (simResult.loanUsdc / CONFIG.MAX_LOAN_USDC) * (bestNetUSD + calcGasCostUSD() + CONFIG.MAX_LOAN_USDC * CONFIG.SLIPPAGE_PCT * 2);
-            if (scaledGross < recalcCosts + CONFIG.MIN_PROFIT_ABOVE_COSTS) {
-                log(`Adjusted loan ${simResult.loanUsdc} USDC: gross $${scaledGross.toFixed(4)} < costs $${recalcCosts.toFixed(4)} + $${CONFIG.MIN_PROFIT_ABOVE_COSTS} — skipping`, "info");
-                document.getElementById("status-text").textContent = "BELOW_THRESHOLD";
-                return;
-            }
-
-            document.getElementById("status-text").textContent = "SUBMITTING TX...";
-            log(`Submitting tx: direction=${dir} loan=${simResult.loanUsdc} USDC`, "strike");
-
-            const signerContract = new ethers.Contract(CONFIG.BOT_CONTRACT, BOT_ABI, walletSigner);
-            const tx = await signerContract.strike(dir, simResult.loanAmt, {
-                gasLimit: BigInt(CONFIG.ESTIMATED_GAS_UNITS + 50000)
-            });
-            log(`TX sent: ${tx.hash.slice(0,20)}...`, "strike");
-
-            document.getElementById("status-text").textContent = "AWAITING CONFIRM...";
-            const receipt = await tx.wait(1);
-
-            if (receipt && receipt.status === 1) {
-                log(`CONFIRMED: ${receipt.hash.slice(0,20)}... block=${receipt.blockNumber} loan=${simResult.loanUsdc} USDC`, "success");
-                document.getElementById("status-text").textContent = "STRIKE_SUCCESS";
-                consecutiveFails = 0;
-                CONFIG.STRIKE_COOLDOWN_MS = 15000;
-            } else {
-                log(`TX REVERTED: ${receipt?.hash?.slice(0,20)}`, "error");
-                document.getElementById("status-text").textContent = "TX_REVERTED";
-                consecutiveFails++;
-            }
-        } catch (e) {
-            const errMsg = e.message || "";
-            if (errMsg.includes("user rejected") || errMsg.includes("ACTION_REJECTED") || e.code === 4001) {
-                log(`TX cancelled by user`, "info");
-                document.getElementById("status-text").textContent = "TX_CANCELLED";
-            } else {
-                log(`Strike error: ${errMsg.slice(0,100)}`, "error");
-                document.getElementById("status-text").textContent = "STRIKE_ERROR";
-                consecutiveFails++;
-            }
-        } finally {
-            isStriking      = false;
-            btn.classList.remove("striking");
-            btn.disabled    = !walletConnected;
-            btn.textContent = "\u25BA MANUAL STRIKE";
-        }
-    }
-
-    async function scan() {
-        tickCount++;
-        document.getElementById("tick-counter").textContent = `TICK: ${tickCount}`;
-        document.getElementById("status-text").textContent  = "SCANNING...";
-
-        const provider = getProvider();
-
-        const [uniResult, aeroResult] = await Promise.allSettled([
-            getUniPrice(provider),
-            getAeroPrice(provider)
-        ]);
-
-        if (uniResult.status === "rejected")
-            log(`Uni error: ${uniResult.reason?.message?.slice(0, 60)}`, "error");
-        if (aeroResult.status === "rejected")
-            log(`Aero error: ${aeroResult.reason?.message?.slice(0, 60)}`, "error");
-
-        fetchGasPrice(provider);
-        provider.getBlockNumber()
-            .then(bn => { document.getElementById("block-num").textContent = `BLOCK: ${bn}`; })
-            .catch(() => {});
-
-        if (uniResult.status === "fulfilled" && aeroResult.status === "fulfilled") {
-            const uniPrice  = uniResult.value;
-            const aeroPrice = aeroResult.value;
-            const arb       = calcArb(uniPrice, aeroPrice, activeLoanAmount);
-            updateUI(uniPrice, aeroPrice, arb);
-
-            if (arb.grossUSD >= arb.minGross) {
-                log(`OPPORTUNITY: ${arb.label} spread=${Math.abs(arb.spreadPct).toFixed(4)}% gross=$${arb.grossUSD.toFixed(4)} > costs($${arb.totalCosts.toFixed(4)})+$1`, "strike");
-                document.getElementById("status-text").textContent = "OPPORTUNITY FOUND";
-
-                if (autoStrikeEnabled && walletConnected && !isStriking && !isCooldownActive()) {
-                    log(`AUTO-STRIKE triggered: ${arb.label} net=+$${arb.netUSD.toFixed(4)} (after costs)`, "strike");
-                    executeStrike();
-                } else if (isCooldownActive()) {
-                    document.getElementById("status-text").textContent = `COOLDOWN (${getCooldownRemaining()}s)`;
-                }
-            } else {
-                document.getElementById("status-text").textContent = "MONITORING";
-            }
-        } else {
-            if (uniResult.status === "rejected" && aeroResult.status === "rejected")
-                rotateRpc("both feeds failed");
-            document.getElementById("status-text").textContent = "FEED_ERROR";
-        }
-
-        setTimeout(scan, CONFIG.SCAN_MS);
-    }
-
-    async function connectWallet() {
-        if (!window.ethereum) { log("No wallet -- install MetaMask", "error"); return; }
-        try {
-            const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-            if (!accounts || !accounts.length) throw new Error("No accounts");
-
-            const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
-            if (parseInt(chainIdHex, 16) !== BASE_CHAIN_ID) {
-                log("Switching to Base mainnet...", "info");
-                try {
-                    await window.ethereum.request({
-                        method: "wallet_switchEthereumChain",
-                        params: [{ chainId: BASE_CHAIN_ID_HEX }]
-                    });
-                } catch (sw) {
-                    if (sw.code === 4902) {
-                        await window.ethereum.request({
-                            method: "wallet_addEthereumChain",
-                            params: [{
-                                chainId: BASE_CHAIN_ID_HEX,
-                                chainName: "Base",
-                                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-                                rpcUrls: ["https://mainnet.base.org"],
-                                blockExplorerUrls: ["https://basescan.org"]
-                            }]
-                        });
-                    } else throw sw;
-                }
-            }
-
-            const web3Provider = new ethers.BrowserProvider(window.ethereum);
-            walletSigner       = await web3Provider.getSigner();
-            const addr         = await walletSigner.getAddress();
-
-            walletConnected = true;
-            document.getElementById("wallet-addr").textContent    = addr.slice(0,6) + "..." + addr.slice(-4);
-            document.getElementById("network-status").textContent = "BASE_MAINNET";
-            document.getElementById("network-status").classList.add("ok");
-
-            const btn       = document.getElementById("manual-strike-btn");
-            btn.disabled    = false;
-            btn.textContent = "\u25BA MANUAL STRIKE";
-            log(`Wallet connected: ${addr.slice(0,10)}...`, "success");
-            log(`Auto-strike: ${autoStrikeEnabled ? "ENABLED" : "DISABLED"}`, "info");
-        } catch (e) {
-            if (e.code === 4001 || (e.message && e.message.includes("user rejected"))) {
-                log(`Wallet connection rejected by user`, "info");
-            } else {
-                log(`Wallet error: ${e.message}`, "error");
-            }
-        }
-    }
-
-    async function init() {
-        const host = CONFIG.RPCs[currentRpc].replace("https://","").split("/")[0];
-        document.getElementById("rpc-indicator").textContent = `RPC: ${host}`;
-
-        const autoToggle = document.getElementById("auto-strike-toggle");
-        const autoStatus = document.getElementById("auto-strike-status");
-        autoToggle.addEventListener("change", () => {
-            autoStrikeEnabled = autoToggle.checked;
-            autoStatus.textContent = autoStrikeEnabled ? "ENABLED" : "DISABLED";
-            autoStatus.className = "auto-status " + (autoStrikeEnabled ? "on" : "off");
-            log(`Auto-strike ${autoStrikeEnabled ? "ENABLED" : "DISABLED"}`, "info");
-        });
-
-        if (window.ethereum) {
-            try {
-                const accounts = await window.ethereum.request({ method: "eth_accounts" });
-                if (accounts && accounts.length) await connectWallet();
-                else document.getElementById("network-status").textContent = "WALLET_DISCONNECTED";
-            } catch (_) {
-                document.getElementById("network-status").textContent = "WALLET_ERROR";
-            }
-            window.ethereum.on("accountsChanged", () => location.reload());
-            window.ethereum.on("chainChanged",    () => location.reload());
-        } else {
-            document.getElementById("network-status").textContent = "NO_WALLET";
-            log("No wallet -- read-only mode", "info");
-        }
-
-        document.getElementById("manual-strike-btn").addEventListener("click", async () => {
-            if (!walletConnected) await connectWallet();
-            else await executeStrike();
-        });
-
-        log("Scanner started -- UNI V3 + AERO vAMM WETH/USDC on Base", "success");
-        log("Auto-strike ENABLED -- will fire when gross covers slippage + gas + $1.00", "info");
-        log("Adaptive sim: any revert steps down loan size (3000->2000->1500->...->100 USDC)", "info");
-        scan();
-    }
-
-    init().catch(e => log(`Init error: ${e.message}`, "error"));
-    </script>
-</body>
-</html>
+  );
+}
