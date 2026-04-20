@@ -1,0 +1,20 @@
+{
+  "name": "flash-engine-v2-lowcomp",
+  "version": "1.0.0",
+  "description": "Balancer V2 flash loan arbitrage engine for Base network",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.js --network base"
+  },
+  "dependencies": {
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "hardhat": "^2.19.0",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0"
+  }
+}
